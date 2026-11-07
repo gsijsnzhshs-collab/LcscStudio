@@ -51,6 +51,9 @@ namespace LcscStudio
         public PanelForm()
         {
             _settings = SettingsStore.Load();
+            // WinForms inherits AD's font-based AutoScaleMode here, which scales our
+            // 9pt layout to 1.5x inside the 289px docked host. Opt out explicitly.
+            AutoScaleMode = AutoScaleMode.None;
             BackColor = Theme.Back;
             Font = Theme.UiFont;
             DoubleBuffered = true;

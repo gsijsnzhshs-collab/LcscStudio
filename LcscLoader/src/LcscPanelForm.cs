@@ -16,6 +16,8 @@ namespace LcscLoader
         internal const string PanelCaption = "立创选料";
 
         private Size _lastSize;
+        private readonly Timer _fitTimer;
+        private int _fitTicks;
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetParent(IntPtr hWnd);
@@ -34,14 +36,13 @@ namespace LcscLoader
 
             // ServerPanelForm keeps its design size (433x1328) while AD hosts it in a
             // narrower container (289x885); adopt the native host client size.
-            var fitTimer = new Timer { Interval = 1200 };
-            var ticks = 0;
-            fitTimer.Tick += (s, e) =>
+            _fitTimer = new Timer { Interval = 1200 };
+            _fitTimer.Tick += (s, e) =>
             {
-                if (++ticks > 12) { fitTimer.Stop(); fitTimer.Dispose(); return; }
+                if (++_fitTicks > 12) { _fitTimer.Stop(); _fitTimer.Dispose(); return; }
                 FitToHost();
             };
-            fitTimer.Start();
+            _fitTimer.Start();
         }
 
         private void FitToHost()
@@ -54,10 +55,18 @@ namespace LcscLoader
                 return;
             }
             RECT rect;
-            if (!GetClientRect(host, out rect)) return;
+            if (!GetClientRect(host, out rect))
+            {
+                LcscLoader.PluginLog.Write("docked panel fit: GetClientRect failed host=" + host);
+                return;
+            }
             var width = rect.Right - rect.Left;
             var height = rect.Bottom - rect.Top;
-            if (width < 200 || height < 200) return;
+            if (width < 200 || height < 200)
+            {
+                LcscLoader.PluginLog.Write("docked panel fit: host too small " + width + "x" + height);
+                return;
+            }
             if (Width == width && Height == height) return;
             LcscLoader.PluginLog.Write("docked panel fit " + Width + "x" + Height +
                 " -> host " + width + "x" + height);
@@ -70,6 +79,7 @@ namespace LcscLoader
             LcscLoader.PluginLog.Write("docked panel load size=" + Width + "x" + Height +
                 " client=" + ClientSize.Width + "x" + ClientSize.Height +
                 " parent=" + (Parent == null ? "null" : Parent.Width + "x" + Parent.Height));
+            FitToHost();
         }
 
         protected override void OnResize(EventArgs e)
