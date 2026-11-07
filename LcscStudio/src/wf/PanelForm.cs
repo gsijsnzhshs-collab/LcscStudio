@@ -164,7 +164,7 @@ namespace LcscStudio
             var infoRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 22,
+                Height = 30,
                 ColumnCount = 3,
                 AutoSize = false,
                 BackColor = Theme.Back,
@@ -182,8 +182,10 @@ namespace LcscStudio
                 Margin = new Padding(0),
                 AutoEllipsis = true,
             };
-            var prevButton = Theme.StyleButton(new Button { Text = "◀", Width = 24, Height = 20, Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0) });
-            var nextButton = Theme.StyleButton(new Button { Text = "▶", Width = 24, Height = 20, Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0) });
+            var prevButton = Theme.StyleButton(new Button { Text = "◀", Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0, 3, 2, 3) });
+            var nextButton = Theme.StyleButton(new Button { Text = "▶", Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0, 3, 0, 3) });
+            Theme.SizeToText(prevButton, 24, 30);
+            Theme.SizeToText(nextButton, 24, 30);
             prevButton.Click += (s, e) => { if (_page > 1) { _page--; RunSearch(); } };
             nextButton.Click += (s, e) => { _page++; RunSearch(); };
             infoRow.Controls.Add(_info, 0, 0);
