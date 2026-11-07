@@ -535,12 +535,20 @@ namespace LcscStudio
             return table;
         }
 
+        private int _lastLayoutWidth = -1;
+
         private void LayoutColumns()
         {
             if (_headerTable == null || _list.Columns.Count < 5) return;
             // Reserve room for a vertical scrollbar so the horizontal bar never appears.
             var width = _list.ClientSize.Width - 20;
             if (width < 150) width = 150;
+            if (_lastLayoutWidth != width)
+            {
+                _lastLayoutWidth = width;
+                PluginLog.Write("panel layout width=" + width + " listClient=" + _list.ClientSize.Width +
+                    " panel=" + Width + "x" + Height);
+            }
             var minimum = new[] { 70, 60, 56, 42, 42 };
             var ratio = new[] { 0.20, 0.28, 0.22, 0.14, 0.16 };
             const int minSum = 270;
