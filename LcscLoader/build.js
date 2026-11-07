@@ -10,7 +10,9 @@ const adSdk = require(path.join(__dirname, '..', 'tools', 'ad-sdk'));
 
 const root = path.resolve(__dirname, '..');
 const csc = path.join(root, '_tools', 'roslyn', 'tasks', 'net472', 'csc.exe');
-const refs = path.join(root, '_tools', 'refs.rsp');
+const refsTemplate = path.join(root, '_tools', 'refs.rsp');
+const net48RefDir = path.join(root, '_tools', 'net48ref');
+const refsGenerated = path.join(root, '_tools', 'refs.generated.rsp');
 const outDir = path.join(__dirname, 'bin');
 
 let cli;
@@ -66,6 +68,55 @@ if (cli.rest.includes('--list-sources')) {
   process.exit(0);
 }
 
+// refs.rsp keeps repo-relative paths so the repository stays portable; csc gets
+// an expanded response file with absolute paths generated next to it.
+function expandRefs() {
+  if (!fs.existsSync(csc)) {
+    throw new Error('Missing compiler: ' + csc + '\n  run: node tools/restore-tools.js');
+  }
+  if (!fs.existsSync(refsTemplate)) {
+    throw new Error('Missing reference list: ' + refsTemplate);
+  }
+
+  const lines = fs.readFileSync(refsTemplate, 'utf8')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const missing = [];
+  const expanded = lines.map(line => {
+    const match = line.match(/^\/r:(?:"([^"]+)"|(.+))$/);
+    if (!match) throw new Error('Unrecognized line in refs.rsp: ' + line);
+    const target = match[1] || match[2];
+    const isAbsolute = /^[A-Za-z]:/.test(target) || target.startsWith('/');
+    if (isAbsolute) {
+      if (!fs.existsSync(target)) missing.push(target);
+      return line;
+    }
+    const full = path.join(net48RefDir, target.split(/[\\/]/).join(path.sep));
+    if (!fs.existsSync(full)) missing.push(full);
+    return '/r:"' + full + '"';
+  });
+
+  if (missing.length) {
+    throw new Error('Missing ' + missing.length + ' of ' + lines.length +
+      ' reference assemblies, e.g.:\n  ' + missing[0] +
+      '\n  run: node tools/restore-tools.js');
+  }
+
+  fs.writeFileSync(refsGenerated, expanded.join('\r\n') + '\r\n', 'utf8');
+  return { file: refsGenerated, count: lines.length };
+}
+
+let refs;
+try {
+  refs = expandRefs();
+  console.log('references: ' + refs.count + ' assemblies from ' + path.relative(root, net48RefDir));
+} catch (error) {
+  console.error('ERROR: ' + error.message);
+  process.exit(1);
+}
+
 fs.mkdirSync(outDir, { recursive: true });
 
 const args = [
@@ -73,7 +124,7 @@ const args = [
   '-target:library',
   '-out:' + dll,
   '-langversion:7.3',
-  '@' + refs,
+  '@' + refs.file,
   '/r:' + path.join(sdkDir, 'Altium.SDK.dll'),
   '/r:' + path.join(sdkDir, 'Altium.SDK.Interfaces.dll'),
   '/r:' + path.join(sdkDir, 'Newtonsoft.Json.dll'),
