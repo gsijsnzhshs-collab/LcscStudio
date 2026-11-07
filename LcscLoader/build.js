@@ -1,15 +1,27 @@
 #!/usr/bin/env node
-// Builds LcscLoader.dll against the local AD20 SDK. Run: node build.js
+// Builds LcscLoader.dll against a resolved Altium Designer SDK.
+// Usage: node build.js [--sdk-dir <dir>] [--ad-version <20|24|25>]
+// Resolution order: --sdk-dir > AD_SDK_DIR > auto-detection. See tools/ad-sdk.js.
 
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const adSdk = require(path.join(__dirname, '..', 'tools', 'ad-sdk'));
 
 const root = path.resolve(__dirname, '..');
 const csc = path.join(root, '_tools', 'roslyn', 'tasks', 'net472', 'csc.exe');
 const refs = path.join(root, '_tools', 'refs.rsp');
-const sdkDir = 'D:\\AD\\AD20\\System';
 const outDir = path.join(__dirname, 'bin');
+
+let sdk;
+try {
+  sdk = adSdk.resolveSdkDir(adSdk.parseArgs(process.argv.slice(2)));
+} catch (error) {
+  console.error('ERROR: ' + error.message);
+  process.exit(1);
+}
+const sdkDir = sdk.dir;
+console.log('SDK: ' + sdkDir + '  [' + sdk.source + (sdk.version ? ', AD' + sdk.version : '') + ']');
 const dll = path.join(outDir, 'LcscLoader.dll');
 const sourceDir = path.join(__dirname, 'src');
 const uiDir = path.join(root, 'LcscStudio', 'src');
