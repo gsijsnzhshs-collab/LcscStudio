@@ -6,6 +6,7 @@
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const adSdk = require(path.join(__dirname, '..', 'tools', 'ad-sdk'));
 
 const root = path.resolve(__dirname, '..');
@@ -124,6 +125,8 @@ const args = [
   '-target:library',
   '-out:' + dll,
   '-langversion:7.3',
+  '-deterministic',
+  '/pathmap:' + root + '=/_/',
   '@' + refs.file,
   '/r:' + path.join(sdkDir, 'Altium.SDK.dll'),
   '/r:' + path.join(sdkDir, 'Altium.SDK.Interfaces.dll'),
@@ -139,4 +142,64 @@ if (result.error) {
 if (result.status !== 0) {
   process.exit(result.status);
 }
+
+function sha256File(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').toUpperCase();
+}
+
+function gitSnapshot() {
+  const run = gitArgs => {
+    const proc = spawnSync('git', gitArgs, { cwd: root, encoding: 'utf8', windowsHide: true });
+    return proc.status === 0 ? proc.stdout.trim() : null;
+  };
+  const status = run(['status', '--porcelain']);
+  return {
+    branch: run(['rev-parse', '--abbrev-ref', 'HEAD']),
+    commit: run(['rev-parse', 'HEAD']),
+    dirty: status === null ? null : status.length > 0,
+  };
+}
+
+const compilerVersion = spawnSync(csc, ['-version'], { encoding: 'utf8', windowsHide: true });
+const buildInfo = {
+  schemaVersion: 1,
+  builtAtUtc: new Date().toISOString(),
+  output: {
+    path: path.relative(root, dll).split(path.sep).join('/'),
+    bytes: fs.statSync(dll).size,
+    sha256: sha256File(dll),
+  },
+  sdk: {
+    dir: sdkDir,
+    source: sdk.source,
+    version: sdk.version,
+    assemblies: adSdk.REQUIRED_DLLS.map(name => ({
+      name,
+      bytes: fs.statSync(path.join(sdkDir, name)).size,
+      sha256: sha256File(path.join(sdkDir, name)),
+    })),
+  },
+  compiler: {
+    path: path.relative(root, csc).split(path.sep).join('/'),
+    version: (compilerVersion.stdout || '').trim(),
+    sha256: sha256File(csc),
+  },
+  references: {
+    list: path.relative(root, refs.file).split(path.sep).join('/'),
+    directories: path.relative(root, net48RefDir).split(path.sep).join('/'),
+    count: refs.count,
+  },
+  sources: sources.map(file => ({
+    path: relativeToRoot(file),
+    bytes: fs.statSync(file).size,
+    sha256: sha256File(file),
+  })),
+  buildArgs: args,
+  git: gitSnapshot(),
+};
+const buildInfoPath = path.join(outDir, 'build-info.json');
+fs.writeFileSync(buildInfoPath, JSON.stringify(buildInfo, null, 2) + '\n', 'utf8');
+
 console.log('Built ' + dll);
+console.log('sha256: ' + buildInfo.output.sha256);
+console.log('build-info: ' + path.relative(root, buildInfoPath));
