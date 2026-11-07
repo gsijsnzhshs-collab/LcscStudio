@@ -51,10 +51,6 @@ namespace LcscStudio
         public PanelForm()
         {
             _settings = SettingsStore.Load();
-            // DPI scaling: keep the 96-dpi pixel metrics as the design baseline and let
-            // WinForms scale bounds/padding while point-sized fonts scale with the DPI.
-            AutoScaleDimensions = new SizeF(96f, 96f);
-            AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = Theme.Back;
             Font = Theme.UiFont;
             DoubleBuffered = true;

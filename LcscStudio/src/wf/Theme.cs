@@ -41,8 +41,6 @@ namespace LcscStudio
             form.BackColor = Back;
             form.ForeColor = Text;
             form.Font = UiFont;
-            form.AutoScaleDimensions = new SizeF(96f, 96f);
-            form.AutoScaleMode = AutoScaleMode.Dpi;
             EnableDarkTitleBar(form);
         }
 
