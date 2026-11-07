@@ -66,7 +66,7 @@ namespace LcscStudio
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 44f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 56f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 78f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84f));
             Controls.Add(_root);
@@ -101,11 +101,21 @@ namespace LcscStudio
             };
             var settingsButton = Theme.StyleButton(new Button
             {
-                Text = "设置", Width = 52, Height = 24, Margin = new Padding(4, 2, 0, 2),
+                Text = "设置",
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MinimumSize = new Size(44, 24),
+                Padding = new Padding(6, 3, 6, 3),
+                Margin = new Padding(4, 2, 0, 2),
             });
             var targetButton = Theme.StyleButton(new Button
             {
-                Text = "下载位置", Width = 76, Height = 24, Margin = new Padding(0, 2, 0, 2),
+                Text = "下载位置",
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MinimumSize = new Size(64, 24),
+                Padding = new Padding(6, 3, 6, 3),
+                Margin = new Padding(0, 2, 0, 2),
             });
             foreach (var button in new[] { settingsButton, targetButton })
             {
@@ -156,11 +166,24 @@ namespace LcscStudio
             };
             _searchButton = Theme.StyleButton(new Button
             {
-                Text = "搜索", Width = 64, Height = 28, Margin = new Padding(4, 2, 0, 2),
+                Text = "搜索",
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MinimumSize = new Size(56, 28),
+                Padding = new Padding(8, 3, 8, 3),
+                Margin = new Padding(4, 2, 0, 2),
                 AccessibleName = "LCSC搜索按钮",
             });
             _searchButton.Click += (s, e) => { _page = 1; RunSearch(); };
-            var pasteButton = Theme.StyleButton(new Button { Text = "粘贴", Width = 52, Height = 28, Margin = new Padding(4, 2, 0, 2) });
+            var pasteButton = Theme.StyleButton(new Button
+            {
+                Text = "粘贴",
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MinimumSize = new Size(46, 28),
+                Padding = new Padding(8, 3, 8, 3),
+                Margin = new Padding(4, 2, 0, 2),
+            });
             pasteButton.Click += (s, e) => PasteAndSearch();
             searchRow.Controls.Add(_search, 0, 0);
             searchRow.Controls.Add(_searchButton, 1, 0);
@@ -223,7 +246,6 @@ namespace LcscStudio
             };
             _list.OwnerDraw = true;
             _list.DrawItem += DrawRow;
-            _list.DrawSubItem += DrawCell;
             Theme.EnableDarkScrollbars(_list);
             _list.HandleCreated += (s, e) =>
                 SendMessage(_list.Handle, 0x1036, new IntPtr(0x00010000), new IntPtr(0x00010000));
@@ -300,8 +322,10 @@ namespace LcscStudio
                 var button = new Button
                 {
                     Text = tabNames[i],
-                    Width = 62,
-                    Height = 26,
+                    AutoSize = true,
+                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                    MinimumSize = new Size(52, 26),
+                    Padding = new Padding(8, 3, 8, 3),
                     Margin = new Padding(0, 2, 6, 2),
                     Font = Theme.SmallFont,
                     FlatStyle = FlatStyle.Flat,
@@ -325,10 +349,10 @@ namespace LcscStudio
             {
                 Text = TargetShortText(),
                 Dock = DockStyle.Top,
-                Height = 36,
+                Height = 40,
                 ForeColor = Theme.TextMuted,
                 Font = Theme.SmallFont,
-                AutoEllipsis = true,
+                AutoEllipsis = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
             };
@@ -406,8 +430,10 @@ namespace LcscStudio
             _logToggle = new Button
             {
                 Text = "收起",
-                Width = 52,
-                Height = 22,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                MinimumSize = new Size(44, 22),
+                Padding = new Padding(6, 2, 6, 2),
                 Font = Theme.SmallFont,
                 Margin = new Padding(0, 2, 0, 2),
                 FlatStyle = FlatStyle.Flat,
@@ -556,6 +582,10 @@ namespace LcscStudio
             }
         }
 
+        private static bool _drawLogged;
+
+        // Details rows are drawn in one pass: background, cell text and separators,
+        // so the row content cannot depend on DrawSubItem being raised.
         private void DrawRow(object sender, DrawListViewItemEventArgs e)
         {
             var back = e.Item.Selected
@@ -563,26 +593,35 @@ namespace LcscStudio
                 : (e.ItemIndex % 2 == 0 ? Theme.InputBack : Color.FromArgb(0x23, 0x24, 0x28));
             using (var brush = new SolidBrush(back))
                 e.Graphics.FillRectangle(brush, e.Bounds);
+            if (!_drawLogged)
+            {
+                _drawLogged = true;
+                PluginLog.Write("list draw items=" + _list.Items.Count + " bounds=" + e.Bounds);
+            }
+
+            var x = e.Bounds.Left;
+            for (var column = 0; column < _list.Columns.Count && column < e.Item.SubItems.Count; column++)
+            {
+                var width = _list.Columns[column].Width;
+                var fore = e.Item.Selected
+                    ? Color.White
+                    : (column >= 3 ? Theme.TextMuted : Theme.Text);
+                var cell = new Rectangle(x, e.Bounds.Top, width, e.Bounds.Height);
+                var rect = cell;
+                rect.Inflate(-6, 0);
+                TextRenderer.DrawText(e.Graphics, e.Item.SubItems[column].Text, Theme.UiFont, rect, fore,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
+                    TextFormatFlags.NoPrefix);
+                if (column < _list.Columns.Count - 1)
+                {
+                    using (var pen = new Pen(Color.FromArgb(0x33, 0x33, 0x33)))
+                        e.Graphics.DrawLine(pen, x + width - 1, e.Bounds.Top + 2,
+                            x + width - 1, e.Bounds.Bottom - 3);
+                }
+                x += width;
+            }
             using (var pen = new Pen(Color.FromArgb(0x30, 0x30, 0x30)))
                 e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-        }
-
-        private void DrawCell(object sender, DrawListViewSubItemEventArgs e)
-        {
-            var fore = e.Item.Selected
-                ? Color.White
-                : (e.ColumnIndex >= 3 ? Theme.TextMuted : Theme.Text);
-            var rect = e.Bounds;
-            rect.Inflate(-6, 0);
-            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, Theme.UiFont, rect, fore,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
-                TextFormatFlags.NoPrefix);
-            if (e.ColumnIndex < e.Item.SubItems.Count - 1)
-            {
-                using (var pen = new Pen(Color.FromArgb(0x33, 0x33, 0x33)))
-                    e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top + 2,
-                        e.Bounds.Right - 1, e.Bounds.Bottom - 3);
-            }
         }
 
         private async void RunSearch()
