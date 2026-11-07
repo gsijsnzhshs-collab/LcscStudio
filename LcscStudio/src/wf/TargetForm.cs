@@ -56,7 +56,7 @@ namespace LcscStudio
             libraryGroup.Controls.Add(browseFolder);
 
             libraryGroup.Controls.Add(new Label { Text = "文件名", Left = 24, Top = 84, Width = 50 });
-            _name = new TextBox { Left = 70, Top = 80, Width = 200, Text = _draft.NewLibraryName };
+            _name = new TextBox { Left = 80, Top = 80, Width = 190, Text = _draft.NewLibraryName };
             libraryGroup.Controls.Add(_name);
             libraryGroup.Controls.Add(new Label
             {
@@ -66,7 +66,7 @@ namespace LcscStudio
                 Width = 160,
                 ForeColor = Color.Gray,
             });
-            _preview = new Label { Left = 70, Top = 110, Width = 480, Height = 36, ForeColor = Color.Gray };
+            _preview = new Label { Left = 80, Top = 110, Width = 470, Height = 36, ForeColor = Color.Gray };
             libraryGroup.Controls.Add(_preview);
 
             _mergeMode = new RadioButton

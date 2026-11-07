@@ -256,6 +256,56 @@ namespace LcscStudio
             }
         }
 
+        public static void StyleRadioButton(RadioButton radio)
+        {
+            radio.FlatStyle = FlatStyle.Flat;
+            radio.Font = UiFont;
+            radio.ForeColor = Text;
+            radio.BackColor = radio.Parent != null ? radio.Parent.BackColor : Back;
+            radio.Paint += (s, e) => PaintRadioButton((RadioButton)s, e);
+        }
+
+        private static void PaintRadioButton(RadioButton radio, PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            using (var fill = new SolidBrush(radio.BackColor))
+            {
+                g.FillRectangle(fill, radio.ClientRectangle);
+            }
+            var size = Math.Max(12, radio.Font.Height - 4);
+            if (size > radio.Height - 2)
+            {
+                size = Math.Max(12, radio.Height - 2);
+            }
+            var ring = new Rectangle(1, (radio.Height - size) / 2, size, size);
+            using (var back = new SolidBrush(InputBack))
+            using (var pen = new Pen(radio.Checked ? Accent : (radio.Enabled ? Border : SurfaceAlt)))
+            {
+                g.FillEllipse(back, ring);
+                g.DrawEllipse(pen, ring);
+            }
+            if (radio.Checked)
+            {
+                var dot = Math.Max(4, (int)(size * 0.5f));
+                using (var brush = new SolidBrush(radio.Enabled ? Accent : TextMuted))
+                {
+                    g.FillEllipse(brush, ring.Left + (size - dot) / 2, ring.Top + (size - dot) / 2, dot, dot);
+                }
+            }
+            var offset = ring.Right + 6;
+            if (offset < radio.Width)
+            {
+                TextRenderer.DrawText(
+                    g,
+                    radio.Text,
+                    radio.Font,
+                    new Rectangle(offset, 0, radio.Width - offset, radio.Height),
+                    radio.Enabled ? radio.ForeColor : TextMuted,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
+                    TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+            }
+        }
+
         // Fixed-height, text-measured width: AutoSize alone under-measures flat
         // buttons and clips the glyph bottoms on high-DPI or narrow panels.
         public static void SizeToText(Button button, int height, int minWidth = 0)
@@ -329,10 +379,7 @@ namespace LcscStudio
                 }
                 else if (control is RadioButton radio)
                 {
-                    radio.FlatStyle = FlatStyle.Flat;
-                    radio.BackColor = Color.Transparent;
-                    radio.ForeColor = Text;
-                    radio.Font = UiFont;
+                    StyleRadioButton(radio);
                 }
                 else if (control is ComboBox combo)
                 {
