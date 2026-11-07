@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -234,6 +235,18 @@ namespace LcscStudio
             listPanel.Controls.Add(_list);
             var columnHeader = BuildColumnHeader();
             Theme.AddBottomBorder(columnHeader, Color.FromArgb(0x2A, 0x2A, 0x2A));
+            columnHeader.Paint += (s, e) =>
+            {
+                float x = 0;
+                using (var pen = new Pen(Color.FromArgb(0x33, 0x33, 0x33)))
+                {
+                    for (var i = 0; i < 4 && i < _headerTable.ColumnStyles.Count - 1; i++)
+                    {
+                        x += _headerTable.ColumnStyles[i].Width;
+                        e.Graphics.DrawLine(pen, x - 1, 3, x - 1, columnHeader.Height - 3);
+                    }
+                }
+            };
             listPanel.Controls.Add(columnHeader);
             listPanel.Controls.Add(infoRow);
             columnHeader.BringToFront();
@@ -309,7 +322,7 @@ namespace LcscStudio
             var footer = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 0), BackColor = Theme.Back };
             _targetLabel = new Label
             {
-                Text = "下载位置：" + _settings.TargetSummary(),
+                Text = TargetShortText(),
                 Dock = DockStyle.Top,
                 Height = 18,
                 ForeColor = Theme.TextMuted,
@@ -510,7 +523,7 @@ namespace LcscStudio
                 {
                     Text = names[i],
                     Dock = DockStyle.Fill,
-                    TextAlign = i >= 3 ? ContentAlignment.MiddleRight : ContentAlignment.MiddleLeft,
+                    TextAlign = ContentAlignment.MiddleLeft,
                     ForeColor = Theme.TextMuted,
                     Font = Theme.SmallFont,
                     Margin = new Padding(2, 0, 2, 0),
@@ -558,9 +571,9 @@ namespace LcscStudio
                 : (e.ColumnIndex >= 3 ? Theme.TextMuted : Theme.Text);
             var rect = e.Bounds;
             rect.Inflate(-6, 0);
-            var align = e.ColumnIndex >= 3 ? TextFormatFlags.Right : TextFormatFlags.Left;
             TextRenderer.DrawText(e.Graphics, e.SubItem.Text, Theme.UiFont, rect, fore,
-                align | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
+                TextFormatFlags.NoPrefix);
             if (e.ColumnIndex < e.Item.SubItems.Count - 1)
             {
                 using (var pen = new Pen(Color.FromArgb(0x33, 0x33, 0x33)))
@@ -703,7 +716,25 @@ namespace LcscStudio
 
         private void UpdateTarget()
         {
-            _targetLabel.Text = "下载位置：" + _settings.TargetSummary();
+            _targetLabel.Text = TargetShortText();
+        }
+
+        private string TargetShortText()
+        {
+            try
+            {
+                var sch = _settings.ResolveSchLib();
+                if (!string.IsNullOrWhiteSpace(sch))
+                {
+                    var folder = Path.GetDirectoryName(sch);
+                    if (!string.IsNullOrWhiteSpace(folder)) return "下载位置：" + folder;
+                }
+            }
+            catch
+            {
+                // Fall back to the configured library folder.
+            }
+            return "下载位置：" + _settings.NewLibraryFolder;
         }
 
         internal static void CopyTarget(AppSettings from, AppSettings to)

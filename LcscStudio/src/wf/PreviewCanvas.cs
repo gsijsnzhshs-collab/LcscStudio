@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Linq;
 using System.Windows.Forms;
 using LcscLoader;
 
@@ -414,36 +415,67 @@ namespace LcscStudio
             var c = map(pad.X, pad.Y);
             var w = (float)Math.Max(0.6, pad.Width * scale);
             var h = (float)Math.Max(0.6, pad.Height * scale);
+            var shape = (pad.Shape ?? "").ToUpperInvariant();
+            var polygon = shape == "POLYGON" && pad.Points.Count >= 3
+                ? pad.Points.Select(p => map(p.X, p.Y)).ToArray()
+                : null;
 
             using (var fill = new SolidBrush(color))
             using (var pen = new Pen(Darken(color), 1.2f))
             {
-                var state = g.Save();
-                g.TranslateTransform(c.X, c.Y);
-                g.RotateTransform((float)-pad.Rotation);
-                var rect = new RectangleF(-w / 2, -h / 2, w, h);
-                switch ((pad.Shape ?? "").ToUpperInvariant())
+                RectangleF bounds;
+                if (polygon != null)
                 {
-                    case "ELLIPSE":
-                    case "OVAL":
-                        g.FillEllipse(fill, rect);
-                        g.DrawEllipse(pen, rect);
-                        break;
-                    case "POLYGON":
-                    case "OCT":
-                        using (var path = Octagon(w / 2, h / 2))
-                        {
-                            g.FillPath(fill, path);
-                            g.DrawPath(pen, path);
-                        }
-                        break;
-                    default:
-                        g.FillRectangle(fill, rect);
-                        g.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
-                        break;
+                    // EasyEDA polygon pads carry their final absolute outline; use it verbatim.
+                    using (var path = new GraphicsPath())
+                    {
+                        path.AddPolygon(polygon);
+                        g.FillPath(fill, path);
+                        g.DrawPath(pen, path);
+                        bounds = path.GetBounds();
+                    }
                 }
-                g.Restore(state);
+                else
+                {
+                    var state = g.Save();
+                    g.TranslateTransform(c.X, c.Y);
+                    g.RotateTransform((float)-pad.Rotation);
+                    var rect = new RectangleF(-w / 2, -h / 2, w, h);
+                    switch (shape)
+                    {
+                        case "ELLIPSE":
+                        case "OVAL":
+                            g.FillEllipse(fill, rect);
+                            g.DrawEllipse(pen, rect);
+                            break;
+                        case "OCT":
+                            using (var path = Octagon(w / 2, h / 2))
+                            {
+                                g.FillPath(fill, path);
+                                g.DrawPath(pen, path);
+                            }
+                            break;
+                        default:
+                            g.FillRectangle(fill, rect);
+                            g.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
+                            break;
+                    }
+                    g.Restore(state);
+                    bounds = new RectangleF(c.X - w / 2, c.Y - h / 2, w, h);
+                }
 
+                if (!string.IsNullOrWhiteSpace(pad.Number))
+                {
+                    var fontSize = Math.Max(6f, Math.Min(11f, bounds.Height * 0.45f));
+                    using (var font = new Font("Microsoft YaHei UI", fontSize, FontStyle.Bold))
+                        TextRenderer.DrawText(g, pad.Number, font, Rectangle.Round(bounds), Color.White,
+                            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                            TextFormatFlags.SingleLine);
+                }
+
+                var center = polygon != null
+                    ? new PointF(bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2)
+                    : c;
                 var drill = (float)(Math.Max(0, pad.HoleRadius) * 2 * scale);
                 if (drill > 0.8f)
                 {
@@ -456,7 +488,7 @@ namespace LcscStudio
                     else
                     {
                         using (var hole = new SolidBrush(Theme.Canvas))
-                            g.FillEllipse(hole, c.X - drill / 2, c.Y - drill / 2, drill, drill);
+                            g.FillEllipse(hole, center.X - drill / 2, center.Y - drill / 2, drill, drill);
                     }
                 }
             }
