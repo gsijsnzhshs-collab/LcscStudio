@@ -39,6 +39,7 @@ namespace LcscStudio
         private Panel _logBody;
         private Button _logToggle;
         private bool _logExpanded = true;
+        private int _previewTab;
         private TableLayoutPanel _headerTable;
         private readonly ToolTip _targetTip = new ToolTip();
 
@@ -87,12 +88,12 @@ namespace LcscStudio
             var settingsButton = Theme.StyleButton(new Button
             {
                 Text = "设置",
-                Margin = new Padding(4, 3, 0, 3),
+                Margin = new Padding(4, 0, 0, 6),
             });
             var targetButton = Theme.StyleButton(new Button
             {
                 Text = "下载位置",
-                Margin = new Padding(0, 3, 0, 3),
+                Margin = new Padding(0, 0, 0, 6),
             });
             foreach (var button in new[] { settingsButton, targetButton })
             {
@@ -296,7 +297,7 @@ namespace LcscStudio
                 var button = new Button
                 {
                     Text = tabNames[i],
-                    Margin = new Padding(0, 3, 6, 3),
+                    Margin = new Padding(0, 0, 6, 6),
                     Font = Theme.SmallFont,
                     FlatStyle = FlatStyle.Flat,
                     UseVisualStyleBackColor = false,
@@ -304,6 +305,11 @@ namespace LcscStudio
                 };
                 button.FlatAppearance.BorderSize = 1;
                 Theme.SizeToText(button, 28, 52);
+                button.MouseEnter += (s, e) =>
+                {
+                    if (index != _previewTab) button.BackColor = Color.FromArgb(0x46, 0x49, 0x4D);
+                };
+                button.MouseLeave += (s, e) => Theme.SetTabActive(button, index == _previewTab);
                 button.Click += (s, e) => SelectPreviewTab(index);
                 _tabButtons[index] = button;
                 tabStrip.Controls.Add(button);
@@ -426,6 +432,7 @@ namespace LcscStudio
 
         private void SelectPreviewTab(int index)
         {
+            _previewTab = index;
             _symbolCanvas.Visible = index == 0;
             _footprintCanvas.Visible = index == 1;
             _modelHint.Visible = index == 2;
