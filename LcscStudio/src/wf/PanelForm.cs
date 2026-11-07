@@ -33,6 +33,12 @@ namespace LcscStudio
         private readonly Button _placeButton;
         private readonly TextBox _log;
         private readonly ProgressBar _progress;
+        private readonly TableLayoutPanel _root;
+        private readonly Button[] _tabButtons = new Button[3];
+        private Panel _logBody;
+        private Button _logToggle;
+        private bool _logExpanded = true;
+        private TableLayoutPanel _headerTable;
 
         private CancellationTokenSource _searchCts;
         private PartDetails _details;
@@ -42,30 +48,34 @@ namespace LcscStudio
         public PanelForm()
         {
             _settings = SettingsStore.Load();
-            BackColor = Color.FromArgb(0xF4, 0xF5, 0xF7);
-            Font = new Font("Microsoft YaHei UI", 9f);
+            BackColor = Theme.Back;
+            Font = Theme.UiFont;
+            DoubleBuffered = true;
 
-            var root = new TableLayoutPanel
+            _root = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(8),
+                Padding = new Padding(10, 8, 10, 8),
                 ColumnCount = 1,
-                RowCount = 6,
+                RowCount = 7,
+                BackColor = Theme.Back,
             };
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 42f));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 58f));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 80f));
-            Controls.Add(root);
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Percent, 44f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Percent, 56f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 60f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84f));
+            Controls.Add(_root);
+            var root = _root;
 
             var header = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                AutoSize = true,
                 ColumnCount = 2,
-                Margin = new Padding(0),
+                Margin = new Padding(0, 0, 0, 2),
+                BackColor = Theme.Back,
             };
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -73,10 +83,11 @@ namespace LcscStudio
             var title = new Label
             {
                 Text = "立创选料",
-                Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold),
-                AutoSize = true,
-                Anchor = AnchorStyles.Left,
-                Margin = new Padding(0, 4, 0, 0),
+                Font = Theme.TitleFont,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Theme.Text,
+                Margin = new Padding(0),
             };
             var actions = new FlowLayoutPanel
             {
@@ -84,9 +95,23 @@ namespace LcscStudio
                 FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
                 Margin = new Padding(0),
+                BackColor = Theme.Back,
             };
-            var settingsButton = new Button { Text = "设置", Width = 68, Height = 26, Margin = new Padding(4, 0, 0, 0) };
-            var targetButton = new Button { Text = "下载位置", Width = 100, Height = 26, Margin = new Padding(0) };
+            var settingsButton = Theme.StyleButton(new Button
+            {
+                Text = "设置", Width = 52, Height = 24, Margin = new Padding(4, 2, 0, 2),
+            });
+            var targetButton = Theme.StyleButton(new Button
+            {
+                Text = "下载位置", Width = 76, Height = 24, Margin = new Padding(0, 2, 0, 2),
+            });
+            foreach (var button in new[] { settingsButton, targetButton })
+            {
+                button.FlatAppearance.BorderSize = 0;
+                button.BackColor = Theme.Back;
+                button.ForeColor = Theme.TextMuted;
+                button.Font = Theme.SmallFont;
+            }
             settingsButton.Click += (s2, e2) => OpenSettings();
             targetButton.Click += (s2, e2) => ChangeTarget();
             actions.Controls.Add(settingsButton);
@@ -98,15 +123,16 @@ namespace LcscStudio
             var searchRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                AutoSize = true,
                 ColumnCount = 3,
-                Margin = new Padding(0, 4, 0, 0),
+                Margin = new Padding(0, 0, 0, 2),
+                BackColor = Theme.Back,
             };
             searchRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             searchRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             searchRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-            _search = new TextBox { Dock = DockStyle.Fill, Height = 26, Margin = new Padding(0, 0, 4, 0), AccessibleName = "LCSC搜索框" };
+            _search = new TextBox { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 2), AccessibleName = "LCSC搜索框" };
+            Theme.StyleTextBox(_search);
             _search.PreviewKeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Enter)
@@ -125,29 +151,42 @@ namespace LcscStudio
                     RunSearch();
                 }
             };
-            _searchButton = new Button { Text = "搜索", Width = 70, Height = 26, Margin = new Padding(0, 0, 4, 0), AccessibleName = "LCSC搜索按钮" };
+            _searchButton = Theme.StyleButton(new Button
+            {
+                Text = "搜索", Width = 64, Height = 28, Margin = new Padding(4, 2, 0, 2),
+                AccessibleName = "LCSC搜索按钮",
+            });
             _searchButton.Click += (s, e) => { _page = 1; RunSearch(); };
-            var pasteButton = new Button { Text = "粘贴", Width = 62, Height = 26 };
+            var pasteButton = Theme.StyleButton(new Button { Text = "粘贴", Width = 52, Height = 28, Margin = new Padding(4, 2, 0, 2) });
             pasteButton.Click += (s, e) => PasteAndSearch();
             searchRow.Controls.Add(_search, 0, 0);
             searchRow.Controls.Add(_searchButton, 1, 0);
             searchRow.Controls.Add(pasteButton, 2, 0);
             root.Controls.Add(searchRow, 0, 1);
 
-            var listPanel = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 0) };
+            var listPanel = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 0), BackColor = Theme.Back };
             var infoRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 20,
+                Height = 22,
                 ColumnCount = 3,
                 AutoSize = false,
+                BackColor = Theme.Back,
             };
             infoRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             infoRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             infoRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            _info = new Label { Text = "输入编号或型号开始搜索", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.DimGray };
-            var prevButton = new Button { Text = "◀", Width = 26, Height = 20, Enabled = false };
-            var nextButton = new Button { Text = "▶", Width = 26, Height = 20, Enabled = false };
+            _info = new Label
+            {
+                Text = "输入编号或型号开始搜索",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Theme.TextMuted,
+                Font = Theme.SmallFont,
+                Margin = new Padding(0),
+            };
+            var prevButton = Theme.StyleButton(new Button { Text = "◀", Width = 24, Height = 20, Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0) });
+            var nextButton = Theme.StyleButton(new Button { Text = "▶", Width = 24, Height = 20, Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0) });
             prevButton.Click += (s, e) => { if (_page > 1) { _page--; RunSearch(); } };
             nextButton.Click += (s, e) => { _page++; RunSearch(); };
             infoRow.Controls.Add(_info, 0, 0);
@@ -163,20 +202,27 @@ namespace LcscStudio
                 FullRowSelect = true,
                 MultiSelect = true,
                 HideSelection = false,
-                BorderStyle = BorderStyle.FixedSingle,
+                BorderStyle = BorderStyle.None,
                 HeaderStyle = ColumnHeaderStyle.None,
+                Margin = new Padding(0),
             };
-            _list.Columns.Add("编号", 80);
-            _list.Columns.Add("型号", 150);
-            _list.Columns.Add("封装", 130);
-            _list.Columns.Add("库存", 80);
-            _list.Columns.Add("单价", 80);
-            _list.Font = new Font("Microsoft YaHei UI", 9f);
+            Theme.StyleList(_list);
+            _list.Columns.Add("编号", 82);
+            _list.Columns.Add("型号", 120);
+            _list.Columns.Add("封装", 78);
+            _list.Columns.Add("库存", 52);
+            _list.Columns.Add("单价", 52);
+            _list.SmallImageList = new ImageList
+            {
+                ImageSize = new Size(1, 22),
+                ColorDepth = ColorDepth.Depth32Bit,
+            };
             _list.SelectedIndexChanged += (s, e) =>
             {
                 if (_list.SelectedItems.Count > 0 && _list.SelectedItems[0].Tag is SearchItem item)
                     LoadDetails(item);
             };
+            _list.SizeChanged += (s, e) => AdjustColumns();
             listPanel.Controls.Add(_list);
             var columnHeader = BuildColumnHeader();
             listPanel.Controls.Add(columnHeader);
@@ -184,38 +230,101 @@ namespace LcscStudio
             columnHeader.BringToFront();
             root.Controls.Add(listPanel, 0, 2);
 
-            var preview = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 0) };
-            _partTitle = new Label { Text = "未选择器件", Dock = DockStyle.Top, Height = 20, Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold) };
-            _partMeta = new Label { Text = "", Dock = DockStyle.Top, Height = 32, ForeColor = Color.DimGray };
-            var tabs = new TabControl { Dock = DockStyle.Fill };
-            var symbolTab = new TabPage("符号");
-            symbolTab.Controls.Add(_symbolCanvas);
+            var preview = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 0), BackColor = Theme.Back };
+            _partTitle = new Label
+            {
+                Text = "未选择器件",
+                Dock = DockStyle.Top,
+                Height = 24,
+                Font = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Bold),
+                ForeColor = Theme.Text,
+                Margin = new Padding(0),
+            };
+            _partMeta = new Label
+            {
+                Text = "",
+                Dock = DockStyle.Top,
+                Height = 22,
+                ForeColor = Theme.TextMuted,
+                Font = Theme.SmallFont,
+                AutoEllipsis = true,
+            };
+
+            var tabStrip = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 30,
+                WrapContents = false,
+                BackColor = Theme.Back,
+                Margin = new Padding(0),
+            };
+            var previewHost = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Canvas };
+
+            _modelHint.Dock = DockStyle.Fill;
+            _modelHint.TextAlign = ContentAlignment.MiddleCenter;
+            _modelHint.ForeColor = Theme.TextMuted;
+            _modelHint.BackColor = Theme.Canvas;
             _symbolCanvas.Dock = DockStyle.Fill;
-            var footprintTab = new TabPage("封装");
-            footprintTab.Controls.Add(_footprintCanvas);
             _footprintCanvas.Dock = DockStyle.Fill;
-            var modelTab = new TabPage("3D");
-            modelTab.Controls.Add(_modelHint);
-            tabs.TabPages.Add(symbolTab);
-            tabs.TabPages.Add(footprintTab);
-            tabs.TabPages.Add(modelTab);
-            preview.Controls.Add(tabs);
+            previewHost.Controls.Add(_modelHint);
+            previewHost.Controls.Add(_footprintCanvas);
+            previewHost.Controls.Add(_symbolCanvas);
+
+            var tabNames = new[] { "符号", "封装", "3D" };
+            for (var i = 0; i < tabNames.Length; i++)
+            {
+                var index = i;
+                var button = new Button
+                {
+                    Text = tabNames[i],
+                    Width = 62,
+                    Height = 26,
+                    Margin = new Padding(0, 2, 6, 2),
+                    Font = Theme.SmallFont,
+                    FlatStyle = FlatStyle.Flat,
+                    UseVisualStyleBackColor = false,
+                    Cursor = Cursors.Hand,
+                };
+                button.FlatAppearance.BorderSize = 1;
+                button.Click += (s, e) => SelectPreviewTab(index);
+                _tabButtons[index] = button;
+                tabStrip.Controls.Add(button);
+            }
+
+            preview.Controls.Add(previewHost);
+            preview.Controls.Add(tabStrip);
             preview.Controls.Add(_partMeta);
             preview.Controls.Add(_partTitle);
             root.Controls.Add(preview, 0, 3);
 
-            var footer = new Panel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 4, 0, 0) };
+            var footer = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 0), BackColor = Theme.Back };
             _targetLabel = new Label
             {
                 Text = "下载位置：" + _settings.TargetSummary(),
                 Dock = DockStyle.Top,
                 Height = 18,
-                ForeColor = Color.DimGray,
+                ForeColor = Theme.TextMuted,
+                Font = Theme.SmallFont,
                 AutoEllipsis = true,
+                Margin = new Padding(0),
             };
-            var buttonRow = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 32, FlowDirection = FlowDirection.RightToLeft };
-            _importButton = new Button { Text = "导入到库", Width = 110, Height = 28 };
-            _placeButton = new Button { Text = "放置到原理图", Width = 130, Height = 28, Margin = new Padding(0, 0, 6, 0) };
+            var buttonRow = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 34,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false,
+                BackColor = Theme.Back,
+                Margin = new Padding(0),
+            };
+            _importButton = Theme.StyleButton(new Button
+            {
+                Text = "导入到库", Width = 108, Height = 30, Margin = new Padding(6, 2, 0, 2),
+            }, true);
+            _placeButton = Theme.StyleButton(new Button
+            {
+                Text = "放置到原理图", Width = 122, Height = 30, Margin = new Padding(0, 2, 0, 2),
+            });
             _importButton.Click += OnImport;
             _placeButton.Click += OnPlace;
             buttonRow.Controls.Add(_importButton);
@@ -230,66 +339,85 @@ namespace LcscStudio
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
-                Font = new Font("Consolas", 8.5f),
-                BackColor = Color.White,
             };
-            var logPanel = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 0) };
-            _progress = new ProgressBar { Dock = DockStyle.Bottom, Height = 3, Visible = false };
-            logPanel.Controls.Add(_log);
-            logPanel.Controls.Add(_progress);
-            root.Controls.Add(logPanel, 0, 5);
+            Theme.StyleTextBox(_log, true);
+            _logBody = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0),
+                BackColor = Theme.Surface,
+                Padding = new Padding(6, 4, 6, 4),
+            };
+            _progress = new ProgressBar
+            {
+                Dock = DockStyle.Bottom,
+                Height = 3,
+                Visible = false,
+                Style = ProgressBarStyle.Continuous,
+            };
+            _logBody.Controls.Add(_log);
+            _logBody.Controls.Add(_progress);
+
+            var logHeader = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                Margin = new Padding(0, 2, 0, 0),
+                BackColor = Theme.Back,
+            };
+            logHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            logHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var logLabel = new Label
+            {
+                Text = "运行日志",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                ForeColor = Theme.TextMuted,
+                Font = Theme.SmallFont,
+                Margin = new Padding(0),
+            };
+            _logToggle = new Button
+            {
+                Text = "收起",
+                Width = 52,
+                Height = 22,
+                Font = Theme.SmallFont,
+                Margin = new Padding(0, 2, 0, 2),
+                FlatStyle = FlatStyle.Flat,
+                UseVisualStyleBackColor = false,
+                Cursor = Cursors.Hand,
+                BackColor = Theme.Back,
+                ForeColor = Theme.TextMuted,
+            };
+            _logToggle.FlatAppearance.BorderSize = 0;
+            _logToggle.Click += (s, e) => ToggleLog();
+            logHeader.Controls.Add(logLabel, 0, 0);
+            logHeader.Controls.Add(_logToggle, 1, 0);
+            root.Controls.Add(logHeader, 0, 5);
+            root.Controls.Add(_logBody, 0, 6);
 
             UpdatePagerButtons();
-            ApplyTheme();
+            SelectPreviewTab(0);
+            AdjustColumns();
         }
 
-        private void ApplyTheme()
+        private void SelectPreviewTab(int index)
         {
-            if (!_settings.DarkPanel) return;
-            var back = Color.FromArgb(0x2B, 0x2D, 0x30);
-            var panel = Color.FromArgb(0x33, 0x36, 0x3A);
-            var text = Color.FromArgb(0xE6, 0xE6, 0xE6);
-            BackColor = back;
-            ApplyTheme(this, back, panel, text);
-        }
-
-        private static void ApplyTheme(Control parent, Color back, Color panel, Color text)
-        {
-            foreach (Control c in parent.Controls)
+            _symbolCanvas.Visible = index == 0;
+            _footprintCanvas.Visible = index == 1;
+            _modelHint.Visible = index == 2;
+            for (var i = 0; i < _tabButtons.Length; i++)
             {
-                if (c is TextBox tb)
-                {
-                    tb.BackColor = Color.FromArgb(0x1E, 0x1F, 0x22);
-                    tb.ForeColor = text;
-                }
-                else if (c is ListView lv)
-                {
-                    lv.BackColor = Color.FromArgb(0x1E, 0x1F, 0x22);
-                    lv.ForeColor = text;
-                }
-                else if (c is Button b)
-                {
-                    b.FlatStyle = FlatStyle.Flat;
-                    b.BackColor = Color.FromArgb(0x3A, 0x3D, 0x41);
-                    b.ForeColor = text;
-                    b.FlatAppearance.BorderColor = Color.FromArgb(0x55, 0x58, 0x5C);
-                }
-                else if (c is TabPage tp)
-                {
-                    tp.BackColor = Color.FromArgb(0x26, 0x28, 0x2B);
-                    tp.ForeColor = text;
-                }
-                else if (c is Label)
-                {
-                    c.ForeColor = text;
-                    c.BackColor = Color.Transparent;
-                }
-                else if (c is Panel || c is TableLayoutPanel || c is FlowLayoutPanel)
-                {
-                    c.BackColor = panel;
-                }
-                ApplyTheme(c, back, panel, text);
+                if (_tabButtons[i] != null) Theme.SetTabActive(_tabButtons[i], i == index);
             }
+        }
+
+        private void ToggleLog()
+        {
+            _logExpanded = !_logExpanded;
+            _root.RowStyles[6].Height = _logExpanded ? 84f : 0f;
+            _logBody.Visible = _logExpanded;
+            _logToggle.Text = _logExpanded ? "收起" : "展开";
         }
 
         public void FocusSearch()
@@ -351,17 +479,17 @@ namespace LcscStudio
             }
         }
 
-        private static Control BuildColumnHeader()
+        private Control BuildColumnHeader()
         {
             var table = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 26,
+                Height = 24,
                 ColumnCount = 5,
-                BackColor = Color.FromArgb(0x3A, 0x3D, 0x41),
+                BackColor = Theme.Surface,
                 Margin = new Padding(0),
             };
-            var widths = new[] { 80, 150, 130, 80, 80 };
+            var widths = new[] { 82, 120, 78, 52, 52 };
             var names = new[] { "编号", "型号", "封装", "库存", "单价" };
             for (var i = 0; i < widths.Length; i++)
             {
@@ -371,11 +499,23 @@ namespace LcscStudio
                     Text = names[i],
                     Dock = DockStyle.Fill,
                     TextAlign = i >= 3 ? ContentAlignment.MiddleRight : ContentAlignment.MiddleLeft,
-                    ForeColor = Color.White,
+                    ForeColor = Theme.TextMuted,
+                    Font = Theme.SmallFont,
                     Margin = new Padding(2, 0, 2, 0),
                 }, i, 0);
             }
+            _headerTable = table;
             return table;
+        }
+
+        private void AdjustColumns()
+        {
+            if (_headerTable == null || _list.Columns.Count < 2) return;
+            const int fixedWidth = 82 + 78 + 52 + 52;
+            var nameWidth = _list.ClientSize.Width - fixedWidth - 2;
+            if (nameWidth < 80) nameWidth = 80;
+            if (_list.Columns[1].Width != nameWidth) _list.Columns[1].Width = nameWidth;
+            if (_headerTable.ColumnStyles.Count > 1) _headerTable.ColumnStyles[1].Width = nameWidth;
         }
 
         private async void RunSearch()
@@ -496,7 +636,6 @@ namespace LcscStudio
                 _settings.SearchPageSize = form.Result.SearchPageSize;
                 SettingsStore.Save(_settings);
                 UpdateTarget();
-                ApplyTheme();
             }
         }
 

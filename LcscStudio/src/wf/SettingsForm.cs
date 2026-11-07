@@ -11,7 +11,6 @@ namespace LcscStudio
         private readonly AppSettings _draft;
         private readonly ComboBox _pageSize;
         private readonly Label _targetSummary;
-        private CheckBox _darkPanel;
         private CheckBox _overwrite;
 
         public AppSettings Result { get; private set; }
@@ -26,7 +25,7 @@ namespace LcscStudio
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            Font = new Font("Microsoft YaHei UI", 9f);
+            Theme.StyleForm(this);
 
             var searchGroup = new GroupBox { Text = "搜索", Left = 12, Top = 12, Width = 510, Height = 70 };
             searchGroup.Controls.Add(new Label { Text = "每页结果数", Left = 12, Top = 28, Width = 80 });
@@ -51,23 +50,12 @@ namespace LcscStudio
             libraryGroup.Controls.Add(change);
             Controls.Add(libraryGroup);
 
-            var themeBox = new CheckBox
-            {
-                Text = "深色面板（与 AD 风格一致）",
-                Left = 24,
-                Top = 205,
-                Width = 240,
-                Checked = _draft.DarkPanel,
-            };
-            Controls.Add(themeBox);
-            _darkPanel = themeBox;
-
             var overwriteBox = new CheckBox
             {
                 Text = "覆盖库中已存在的同名器件",
-                Left = 272,
+                Left = 24,
                 Top = 205,
-                Width = 230,
+                Width = 300,
                 Checked = _draft.Overwrite,
             };
             Controls.Add(overwriteBox);
@@ -93,6 +81,9 @@ namespace LcscStudio
             cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(ok);
             Controls.Add(cancel);
+            Theme.ApplyRecursive(this);
+            Theme.StyleButton(ok, true);
+            Theme.ApplyButtons(this, ok);
         }
 
         private void ChangeTarget()
@@ -122,7 +113,6 @@ namespace LcscStudio
         {
             if (_pageSize.SelectedItem != null)
                 _draft.SearchPageSize = (int)_pageSize.SelectedItem;
-            _draft.DarkPanel = _darkPanel.Checked;
             _draft.Overwrite = _overwrite.Checked;
 
             Result = _draft;

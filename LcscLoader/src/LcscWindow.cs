@@ -28,6 +28,8 @@ namespace LcscLoader
                     ShowInTaskbar = false,
                     StartPosition = FormStartPosition.Manual,
                     MinimizeBox = false,
+                    BackColor = Theme.Back,
+                    Font = Theme.UiFont,
                 };
                 _form.Controls.Add(panel);
                 _form.Show();

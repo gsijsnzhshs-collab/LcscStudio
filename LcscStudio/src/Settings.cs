@@ -17,7 +17,6 @@ namespace LcscStudio
         public bool Overwrite = true;
         public bool PlaceAfterImport;
         public int SearchPageSize = 30;
-        public bool DarkPanel = true;
 
         public AppSettings Clone()
         {
