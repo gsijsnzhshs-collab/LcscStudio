@@ -1,33 +1,47 @@
 #!/usr/bin/env node
-// Installs (or removes) the LCSCLoader extension for Altium Designer.
-// Run from an elevated shell: node deploy.js [--uninstall]
-// Altium Designer must be closed while this runs.
+// Installs the LCSCLoader extension into a running Altium Designer installation.
+// Run from an elevated shell, with Altium Designer closed.
+//
+// Usage:
+//   node deploy.js [--target auto|system|programdata] [--sdk-dir <dir>] [--ad-version <20|24|25>]
+//                  [--uninstall] [--dry-run] [--force]
+//
+// Layouts:
+//   system      - copy beside the AD binaries (this machine loads D:\AD\AD20\System)
+//   programdata - copy into %ProgramData%\Altium\...\Extensions and register it
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { spawnSync } = require('child_process');
+const adSdk = require(path.join(__dirname, '..', 'tools', 'ad-sdk'));
+const deployTarget = require(path.join(__dirname, '..', 'tools', 'deploy-target'));
 
 const root = __dirname;
-const uninstall = process.argv.includes('--uninstall');
-const programData = process.env.ProgramData || 'C:\\ProgramData';
-const altiumRoot = path.join(programData, 'Altium');
-const FILES = [
-  { source: path.join(root, 'bin', 'LcscLoader.dll'), name: 'LcscLoader.dll' },
-  { source: path.join(root, 'LCSCLoader.Ins'), name: 'LCSCLoader.Ins' },
-  { source: path.join(root, 'LcscLoader.rcs'), name: 'LcscLoader.rcs' },
-];
+const argv = process.argv.slice(2);
+const flags = {
+  uninstall: argv.includes('--uninstall'),
+  dryRun: argv.includes('--dry-run'),
+  force: argv.includes('--force'),
+};
+let cli;
+try {
+  cli = adSdk.parseArgs(argv);
+} catch (error) {
+  console.error('ERROR: ' + error.message);
+  process.exit(1);
+}
 
-function findExtensionsDir() {
-  if (!fs.existsSync(altiumRoot)) {
-    throw new Error('Altium data directory not found: ' + altiumRoot);
-  }
-  const candidates = fs.readdirSync(altiumRoot)
-    .filter(name => name.startsWith('Altium Designer '))
-    .map(name => path.join(altiumRoot, name, 'Extensions'))
-    .filter(dir => fs.existsSync(path.join(dir, 'ExtensionsRegistry.xml')));
-  if (candidates.length === 0) {
-    throw new Error('No ExtensionsRegistry.xml found under ' + altiumRoot);
-  }
-  return candidates[0];
+function flagValue(name, fallback) {
+  const index = cli.rest.indexOf(name);
+  if (index < 0) return fallback;
+  const value = cli.rest[index + 1];
+  if (!value || value.startsWith('--')) throw new Error(name + ' requires a value');
+  return value;
+}
+
+function sha256(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').toUpperCase();
 }
 
 function oleDate(date) {
@@ -69,50 +83,123 @@ function buildItem(extensionPath) {
   return lines.join('\r\n');
 }
 
-function main() {
-  const extensionsDir = findExtensionsDir();
-  const target = path.join(extensionsDir, 'LCSCLoader');
-  const registryPath = path.join(extensionsDir, 'ExtensionsRegistry.xml');
+function altiumRunning() {
+  const result = spawnSync('tasklist', ['/FI', 'IMAGENAME eq X2.EXE', '/NH'], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  return (result.stdout || '').toUpperCase().includes('X2.EXE');
+}
+
+function backupExisting(targetFile) {
+  if (!fs.existsSync(targetFile)) return null;
+  const backup = targetFile + '.bak-' + Date.now();
+  fs.copyFileSync(targetFile, backup);
+  return backup;
+}
+
+function updateRegistry(registryPath, extensionPath) {
   let xml = fs.readFileSync(registryPath, 'utf8');
   const blockPattern = /[ \t]*<Item HRID="LCSCLoader"[\s\S]*?<\/Item>\r?\n?/;
 
-  if (uninstall) {
-    xml = xml.replace(blockPattern, '');
-    fs.writeFileSync(registryPath, xml, 'utf8');
-    fs.rmSync(target, { recursive: true, force: true });
-    console.log('LCSCLoader removed. Restart Altium Designer.');
-    return;
+  if (flags.uninstall) {
+    fs.writeFileSync(registryPath, xml.replace(blockPattern, ''), 'utf8');
+    return 'registry entry removed';
   }
 
-  for (const file of FILES) {
-    if (!fs.existsSync(file.source)) {
-      throw new Error('Missing build output: ' + file.source + ' (run the build first)');
-    }
-  }
-
-  fs.mkdirSync(target, { recursive: true });
-  for (const file of FILES) {
-    fs.copyFileSync(file.source, path.join(target, file.name));
-  }
-
-  fs.copyFileSync(registryPath, registryPath + '.bak');
   if (blockPattern.test(xml)) {
     xml = xml.replace(/<Version>[^<]*<\/Version>/, '<Version>1.0.3.0</Version>');
     xml = xml.replace(/<VersionGuid>[^<]*<\/VersionGuid>/, '<VersionGuid>D7E4C9A6-5FB1-4D3C-BE80-0B4C3F9D5E12</VersionGuid>');
     fs.writeFileSync(registryPath, xml, 'utf8');
-    console.log('Registry entry already present, files refreshed.');
-  } else {
-    const close = xml.lastIndexOf('</Extensions>');
-    if (close < 0) {
-      throw new Error('Unexpected ExtensionsRegistry.xml layout');
-    }
-    xml = xml.slice(0, close) + buildItem(target) + xml.slice(close);
-    fs.writeFileSync(registryPath, xml, 'utf8');
-    console.log('Registry entry added.');
+    return 'registry entry already present, refreshed';
   }
 
-  console.log('Installed to: ' + target);
-  console.log('Start Altium Designer, then use Tools > LCSC Component Import... in a schematic, schematic library, PCB or PCB library document.');
+  const close = xml.lastIndexOf('</Extensions>');
+  if (close < 0) throw new Error('Unexpected ExtensionsRegistry.xml layout: ' + registryPath);
+  fs.writeFileSync(registryPath, xml.slice(0, close) + buildItem(extensionPath) + xml.slice(close), 'utf8');
+  return 'registry entry added';
+}
+
+function main() {
+  const layout = flagValue('--target', 'auto');
+  if (!deployTarget.LAYOUTS.includes(layout)) {
+    throw new Error('--target must be one of: ' + deployTarget.LAYOUTS.join(', '));
+  }
+
+  let sdk = null;
+  try {
+    sdk = adSdk.resolveSdkDir(cli);
+  } catch (error) {
+    if (layout === 'programdata') {
+      console.warn('warning: no SDK detected (' + error.message.split('\n')[0] + ')');
+    } else {
+      throw error;
+    }
+  }
+
+  const target = deployTarget.resolveTarget({
+    layout,
+    sdk,
+    adVersion: cli.adVersion,
+    preferSystem: true,
+  });
+
+  console.log('layout: ' + target.layout);
+  console.log('target: ' + target.dir);
+  if (target.registry) console.log('registry: ' + target.registry);
+
+  if (target.layout === 'system' && altiumRunning() && !flags.force && !flags.dryRun) {
+    throw new Error('Altium Designer (X2.EXE) is running. Close it first, or pass --force.');
+  }
+
+  const files = deployTarget.sourcePaths(root);
+  for (const file of files) {
+    if (!fs.existsSync(file.source)) {
+      throw new Error('Missing build input: ' + file.source + ' (run node build.js first)');
+    }
+  }
+
+  if (flags.uninstall) {
+    if (flags.dryRun) {
+      console.log('[dry-run] would remove files from ' + target.dir);
+    } else {
+      for (const file of files) {
+        const deployed = path.join(target.dir, file.name);
+        if (fs.existsSync(deployed)) fs.rmSync(deployed, { force: true });
+      }
+      if (target.registry) updateRegistry(target.registry, target.dir);
+      console.log('LCSCLoader removed from ' + target.dir + '. Restart Altium Designer.');
+    }
+    return;
+  }
+
+  if (flags.dryRun) {
+    for (const file of files) {
+      console.log('[dry-run] ' + file.name + '  ' + sha256(file.source) + '  -> ' + target.dir);
+    }
+    console.log('[dry-run] no files written');
+    return;
+  }
+
+  fs.mkdirSync(target.dir, { recursive: true });
+  for (const file of files) {
+    const deployed = path.join(target.dir, file.name);
+    const backup = backupExisting(deployed);
+    fs.copyFileSync(file.source, deployed);
+    console.log('  ' + file.name + '  ' + sha256(deployed).slice(0, 12) + '…' +
+      (backup ? '  (backup: ' + path.basename(backup) + ')' : ''));
+  }
+
+  if (target.registry) {
+    console.log('  ' + updateRegistry(target.registry, target.dir));
+  }
+
+  console.log('Installed to: ' + target.dir);
+  if (target.layout === 'system') {
+    console.log('Start Altium Designer, then use Tools > LCSC Component Import... .');
+  } else {
+    console.log('Restart Altium Designer and confirm the extension is enabled in Extensions & Updates.');
+  }
 }
 
 try {
