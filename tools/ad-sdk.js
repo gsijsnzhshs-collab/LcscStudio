@@ -151,8 +151,6 @@ function commonCandidates(list) {
 
 function candidates() {
   const list = [];
-  const env = process.env.AD_SDK_DIR;
-  if (env) addCandidate(list, env, 'AD_SDK_DIR');
   registryCandidates(list);
   commonCandidates(list);
   addCandidate(list, LEGACY_DIR, 'legacy');
@@ -178,19 +176,26 @@ function matchesVersion(candidate, adVersion) {
 
 // Resolve the SDK directory. Throws with a candidate report when nothing usable is found.
 function resolveSdkDir(opts = {}) {
-  if (opts.sdkDir) {
-    const dir = norm(opts.sdkDir);
+  const explicit = opts.sdkDir || process.env.AD_SDK_DIR;
+  if (explicit) {
+    const source = opts.sdkDir ? '--sdk-dir' : 'AD_SDK_DIR';
+    const dir = norm(explicit);
     if (!fs.existsSync(dir)) {
-      throw new Error('SDK directory does not exist: ' + dir);
+      throw new Error('SDK directory does not exist (' + source + '): ' + dir);
     }
     const missing = missingDlls(dir);
     if (missing.length) {
-      throw new Error('SDK directory is missing required assemblies: ' + missing.join(', ') + '\n  in ' + dir);
+      throw new Error('SDK directory is missing required assemblies: ' + missing.join(', ') +
+        '\n  in ' + dir + '  (' + source + ')');
     }
-    if (opts.adVersion && versionFromPath(dir) !== opts.adVersion) {
-      throw new Error('SDK directory does not look like AD' + opts.adVersion + ': ' + dir);
+    if (opts.adVersion) {
+      const inferred = versionFromPath(dir);
+      if (inferred && inferred !== opts.adVersion) {
+        throw new Error('SDK directory looks like AD' + inferred + ', but --ad-version is ' +
+          opts.adVersion + ': ' + dir);
+      }
     }
-    return { dir, version: versionFromPath(dir), source: '--sdk-dir' };
+    return { dir, version: versionFromPath(dir), source };
   }
 
   const all = candidates();
