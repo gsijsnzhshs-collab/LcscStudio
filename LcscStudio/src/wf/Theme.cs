@@ -123,6 +123,16 @@ namespace LcscStudio
             return button;
         }
 
+        // Fixed-height, text-measured width: AutoSize alone under-measures flat
+        // buttons and clips the glyph bottoms on high-DPI or narrow panels.
+        public static void SizeToText(Button button, int height, int minWidth = 0)
+        {
+            button.AutoSize = false;
+            button.Height = height;
+            var measured = TextRenderer.MeasureText(button.Text, button.Font).Width;
+            button.Width = Math.Max(minWidth, measured + 22);
+        }
+
         public static void SetTabActive(Button button, bool active)
         {
             button.BackColor = active ? Accent : SurfaceAlt;

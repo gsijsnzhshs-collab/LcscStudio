@@ -62,12 +62,12 @@ namespace LcscStudio
                 RowCount = 7,
                 BackColor = Theme.Back,
             };
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 44f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 56f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84f));
             Controls.Add(_root);
             var root = _root;
@@ -83,20 +83,12 @@ namespace LcscStudio
             var settingsButton = Theme.StyleButton(new Button
             {
                 Text = "设置",
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                MinimumSize = new Size(44, 24),
-                Padding = new Padding(6, 3, 6, 3),
-                Margin = new Padding(4, 2, 0, 2),
+                Margin = new Padding(4, 3, 0, 3),
             });
             var targetButton = Theme.StyleButton(new Button
             {
                 Text = "下载位置",
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                MinimumSize = new Size(64, 24),
-                Padding = new Padding(6, 3, 6, 3),
-                Margin = new Padding(0, 2, 0, 2),
+                Margin = new Padding(0, 3, 0, 3),
             });
             foreach (var button in new[] { settingsButton, targetButton })
             {
@@ -104,6 +96,7 @@ namespace LcscStudio
                 button.BackColor = Theme.Back;
                 button.ForeColor = Theme.TextMuted;
                 button.Font = Theme.SmallFont;
+                Theme.SizeToText(button, 26, 44);
             }
             settingsButton.Click += (s2, e2) => OpenSettings();
             targetButton.Click += (s2, e2) => ChangeTarget();
@@ -146,23 +139,17 @@ namespace LcscStudio
             _searchButton = Theme.StyleButton(new Button
             {
                 Text = "搜索",
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                MinimumSize = new Size(56, 28),
-                Padding = new Padding(8, 3, 8, 3),
-                Margin = new Padding(4, 2, 0, 2),
+                Margin = new Padding(4, 3, 0, 3),
                 AccessibleName = "LCSC搜索按钮",
             });
+            Theme.SizeToText(_searchButton, 30, 56);
             _searchButton.Click += (s, e) => { _page = 1; RunSearch(); };
             var pasteButton = Theme.StyleButton(new Button
             {
                 Text = "粘贴",
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                MinimumSize = new Size(46, 28),
-                Padding = new Padding(8, 3, 8, 3),
-                Margin = new Padding(4, 2, 0, 2),
+                Margin = new Padding(4, 3, 0, 3),
             });
+            Theme.SizeToText(pasteButton, 30, 46);
             pasteButton.Click += (s, e) => PasteAndSearch();
             searchRow.Controls.Add(_search, 0, 0);
             searchRow.Controls.Add(_searchButton, 1, 0);
@@ -281,7 +268,7 @@ namespace LcscStudio
             var tabStrip = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 30,
+                Height = 34,
                 WrapContents = false,
                 BackColor = Theme.Back,
                 Margin = new Padding(0),
@@ -305,17 +292,14 @@ namespace LcscStudio
                 var button = new Button
                 {
                     Text = tabNames[i],
-                    AutoSize = true,
-                    AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                    MinimumSize = new Size(52, 26),
-                    Padding = new Padding(8, 3, 8, 3),
-                    Margin = new Padding(0, 2, 6, 2),
+                    Margin = new Padding(0, 3, 6, 3),
                     Font = Theme.SmallFont,
                     FlatStyle = FlatStyle.Flat,
                     UseVisualStyleBackColor = false,
                     Cursor = Cursors.Hand,
                 };
                 button.FlatAppearance.BorderSize = 1;
+                Theme.SizeToText(button, 28, 52);
                 button.Click += (s, e) => SelectPreviewTab(index);
                 _tabButtons[index] = button;
                 tabStrip.Controls.Add(button);
@@ -413,12 +397,8 @@ namespace LcscStudio
             _logToggle = new Button
             {
                 Text = "收起",
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                MinimumSize = new Size(44, 22),
-                Padding = new Padding(6, 2, 6, 2),
                 Font = Theme.SmallFont,
-                Margin = new Padding(0, 2, 0, 2),
+                Margin = new Padding(0, 3, 0, 3),
                 FlatStyle = FlatStyle.Flat,
                 UseVisualStyleBackColor = false,
                 Cursor = Cursors.Hand,
@@ -426,6 +406,7 @@ namespace LcscStudio
                 ForeColor = Theme.TextMuted,
             };
             _logToggle.FlatAppearance.BorderSize = 0;
+            Theme.SizeToText(_logToggle, 24, 44);
             _logToggle.Click += (s, e) => ToggleLog();
             logHeader.Controls.Add(logLabel, 0, 0);
             logHeader.Controls.Add(_logToggle, 1, 0);
