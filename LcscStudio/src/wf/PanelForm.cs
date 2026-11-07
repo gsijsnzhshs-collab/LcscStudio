@@ -40,6 +40,7 @@ namespace LcscStudio
         private Button _logToggle;
         private bool _logExpanded = true;
         private TableLayoutPanel _headerTable;
+        private readonly ToolTip _targetTip = new ToolTip();
 
         private CancellationTokenSource _searchCts;
         private PartDetails _details;
@@ -65,7 +66,7 @@ namespace LcscStudio
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 44f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 56f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 60f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 78f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84f));
             Controls.Add(_root);
@@ -324,12 +325,14 @@ namespace LcscStudio
             {
                 Text = TargetShortText(),
                 Dock = DockStyle.Top,
-                Height = 18,
+                Height = 36,
                 ForeColor = Theme.TextMuted,
                 Font = Theme.SmallFont,
                 AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
             };
+            _targetTip.SetToolTip(_targetLabel, _settings.TargetSummary());
             var buttonRow = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
@@ -717,24 +720,26 @@ namespace LcscStudio
         private void UpdateTarget()
         {
             _targetLabel.Text = TargetShortText();
+            _targetTip.SetToolTip(_targetLabel, _settings.TargetSummary());
         }
 
         private string TargetShortText()
         {
+            var folder = _settings.NewLibraryFolder;
             try
             {
                 var sch = _settings.ResolveSchLib();
                 if (!string.IsNullOrWhiteSpace(sch))
                 {
-                    var folder = Path.GetDirectoryName(sch);
-                    if (!string.IsNullOrWhiteSpace(folder)) return "下载位置：" + folder;
+                    var directory = Path.GetDirectoryName(sch);
+                    if (!string.IsNullOrWhiteSpace(directory)) folder = directory;
                 }
             }
             catch
             {
                 // Fall back to the configured library folder.
             }
-            return "下载位置：" + _settings.NewLibraryFolder;
+            return "下载位置：" + Environment.NewLine + folder;
         }
 
         internal static void CopyTarget(AppSettings from, AppSettings to)

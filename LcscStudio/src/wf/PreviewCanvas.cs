@@ -336,8 +336,25 @@ namespace LcscStudio
                 (float)(Width / 2 + (x - originX) * scale),
                 (float)(Height / 2 - (originY - y) * scale));
 
-            foreach (var shape in _footprint.Shapes)
+            // EasyEDA can split one pad number across several primitives (e.g. SOT-89 pad 2);
+            // draw the number once, on the largest primitive of that number.
+            var numberOwner = new Dictionary<string, int>();
+            var numberArea = new Dictionary<string, double>();
+            for (var i = 0; i < _footprint.Shapes.Count; i++)
             {
+                var candidate = _footprint.Shapes[i];
+                if (candidate.Kind != EeFpKind.Pad || string.IsNullOrWhiteSpace(candidate.Number)) continue;
+                var area = Math.Abs(candidate.Width * candidate.Height);
+                if (!numberOwner.ContainsKey(candidate.Number) || area > numberArea[candidate.Number])
+                {
+                    numberOwner[candidate.Number] = i;
+                    numberArea[candidate.Number] = area;
+                }
+            }
+
+            for (var index = 0; index < _footprint.Shapes.Count; index++)
+            {
+                var shape = _footprint.Shapes[index];
                 var layer = ResolveLayer(shape.LayerId);
                 var color = LayerColor(layer);
                 using (var pen = new Pen(color, Math.Max(1f, (float)(shape.StrokeWidth * scale))))
@@ -367,7 +384,8 @@ namespace LcscStudio
                             break;
                         }
                         case EeFpKind.Pad:
-                            DrawPad(g, shape, Map, scale, color);
+                            DrawPad(g, shape, Map, scale, color,
+                                numberOwner.TryGetValue(shape.Number, out var owner) && owner == index);
                             break;
                         case EeFpKind.Hole:
                         {
@@ -410,7 +428,8 @@ namespace LcscStudio
             }
         }
 
-        private void DrawPad(Graphics g, EeFpShape pad, Func<double, double, PointF> map, double scale, Color color)
+        private void DrawPad(Graphics g, EeFpShape pad, Func<double, double, PointF> map, double scale,
+            Color color, bool showNumber)
         {
             var c = map(pad.X, pad.Y);
             var w = (float)Math.Max(0.6, pad.Width * scale);
@@ -444,9 +463,16 @@ namespace LcscStudio
                     switch (shape)
                     {
                         case "ELLIPSE":
-                        case "OVAL":
                             g.FillEllipse(fill, rect);
                             g.DrawEllipse(pen, rect);
+                            break;
+                        case "OVAL":
+                            // EasyEDA OVAL pads are obround (stadium), not ellipses.
+                            using (var path = RoundedRect(rect, Math.Min(w, h) / 2))
+                            {
+                                g.FillPath(fill, path);
+                                g.DrawPath(pen, path);
+                            }
                             break;
                         case "OCT":
                             using (var path = Octagon(w / 2, h / 2))
@@ -464,7 +490,7 @@ namespace LcscStudio
                     bounds = new RectangleF(c.X - w / 2, c.Y - h / 2, w, h);
                 }
 
-                if (!string.IsNullOrWhiteSpace(pad.Number))
+                if (showNumber && !string.IsNullOrWhiteSpace(pad.Number))
                 {
                     var fontSize = Math.Max(6f, Math.Min(11f, bounds.Height * 0.45f));
                     using (var font = new Font("Microsoft YaHei UI", fontSize, FontStyle.Bold))
