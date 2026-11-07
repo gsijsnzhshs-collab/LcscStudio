@@ -66,7 +66,7 @@ namespace LcscStudio
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 44f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 56f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84f));
             Controls.Add(_root);
@@ -331,11 +331,11 @@ namespace LcscStudio
             {
                 Text = TargetShortText(),
                 Dock = DockStyle.Top,
-                Height = 42,
+                Height = 20,
                 ForeColor = Theme.TextMuted,
                 Font = Theme.SmallFont,
-                AutoEllipsis = false,
-                TextAlign = ContentAlignment.TopLeft,
+                AutoEllipsis = true,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
             };
             _targetTip.SetToolTip(_targetLabel, _settings.TargetSummary());
@@ -782,7 +782,7 @@ namespace LcscStudio
             {
                 // Fall back to the configured library folder.
             }
-            return "下载位置：" + Environment.NewLine + folder;
+            return "下载位置：" + folder;
         }
 
         internal static void CopyTarget(AppSettings from, AppSettings to)
