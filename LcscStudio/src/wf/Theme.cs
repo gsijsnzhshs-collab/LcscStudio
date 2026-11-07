@@ -120,7 +120,44 @@ namespace LcscStudio
                 button.BackColor = button.Enabled ? normal : Surface;
                 button.ForeColor = button.Enabled ? (primary ? AccentText : Text) : TextMuted;
             };
+            EnableOwnTextPaint(button);
             return button;
+        }
+
+        // Inside the Altium host, WinForms computes a text rectangle that is shorter
+        // than the control (measured: bottom 4px of a 26px button never get painted),
+        // which cuts the glyph bottoms. Repaint the caption ourselves, centred in the
+        // full client area, so the layout no longer depends on that internal rectangle.
+        public static void EnableOwnTextPaint(Button button)
+        {
+            button.Paint += (s, e) =>
+            {
+                var b = (Button)s;
+                using (var fill = new SolidBrush(b.BackColor))
+                {
+                    e.Graphics.FillRectangle(fill, b.ClientRectangle);
+                }
+                var border = b.FlatAppearance.BorderSize;
+                if (border > 0)
+                {
+                    using (var pen = new Pen(b.FlatAppearance.BorderColor, border))
+                    {
+                        e.Graphics.DrawRectangle(pen, 0, 0, b.Width - border, b.Height - border);
+                    }
+                }
+                if (string.IsNullOrEmpty(b.Text))
+                {
+                    return;
+                }
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    b.Text,
+                    b.Font,
+                    b.ClientRectangle,
+                    b.Enabled ? b.ForeColor : TextMuted,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                    TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+            };
         }
 
         // Fixed-height, text-measured width: AutoSize alone under-measures flat
@@ -128,8 +165,11 @@ namespace LcscStudio
         public static void SizeToText(Button button, int height, int minWidth = 0)
         {
             button.AutoSize = false;
-            button.Height = height;
             button.TextAlign = ContentAlignment.MiddleCenter;
+            // Flat buttons reserve ~6px of vertical padding; a control shorter than
+            // the font's line height silently clips the top of the glyphs.
+            var lineHeight = TextRenderer.MeasureText("Hg", button.Font).Height;
+            button.Height = Math.Max(height, lineHeight + 6);
             var measured = TextRenderer.MeasureText(button.Text, button.Font).Width;
             button.Width = Math.Max(minWidth, measured + 22);
         }

@@ -61,17 +61,17 @@ namespace LcscStudio
             _root = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(10, 12, 10, 8),
+                Padding = new Padding(10, 8, 10, 8),
                 ColumnCount = 1,
                 RowCount = 7,
                 BackColor = Theme.Back,
             };
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 44f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 56f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92f));
             Controls.Add(_root);
             var root = _root;
@@ -164,7 +164,7 @@ namespace LcscStudio
             var infoRow = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 30,
+                Height = 36,
                 ColumnCount = 3,
                 AutoSize = false,
                 BackColor = Theme.Back,
@@ -274,7 +274,7 @@ namespace LcscStudio
             var tabStrip = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 34,
+                Height = 36,
                 WrapContents = false,
                 BackColor = Theme.Back,
                 Margin = new Padding(0),
@@ -306,6 +306,7 @@ namespace LcscStudio
                 };
                 button.FlatAppearance.BorderSize = 1;
                 Theme.SizeToText(button, 28, 52);
+                Theme.EnableOwnTextPaint(button);
                 button.MouseEnter += (s, e) =>
                 {
                     if (index != _previewTab) button.BackColor = Color.FromArgb(0x46, 0x49, 0x4D);
@@ -420,6 +421,7 @@ namespace LcscStudio
             };
             _logToggle.FlatAppearance.BorderSize = 0;
             Theme.SizeToText(_logToggle, 24, 44);
+            Theme.EnableOwnTextPaint(_logToggle);
             _logToggle.Click += (s, e) => ToggleLog();
             logHeader.Controls.Add(logLabel, 0, 0);
             logHeader.Controls.Add(_logToggle, 1, 0);
@@ -448,7 +450,7 @@ namespace LcscStudio
         private void ToggleLog()
         {
             _logExpanded = !_logExpanded;
-            _root.RowStyles[6].Height = _logExpanded ? 84f : 0f;
+            _root.RowStyles[6].Height = _logExpanded ? 92f : 0f;
             _logBody.Visible = _logExpanded;
             _logToggle.Text = _logExpanded ? "收起" : "展开";
         }
