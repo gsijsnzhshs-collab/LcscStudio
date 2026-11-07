@@ -61,12 +61,12 @@ namespace LcscStudio
             _root = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(10, 8, 10, 8),
+                Padding = new Padding(10, 12, 10, 8),
                 ColumnCount = 1,
                 RowCount = 7,
                 BackColor = Theme.Back,
             };
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 44f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 56f));
@@ -87,12 +87,12 @@ namespace LcscStudio
             var settingsButton = Theme.StyleButton(new Button
             {
                 Text = "设置",
-                Margin = new Padding(4, 0, 0, 6),
+                Margin = new Padding(4, 4, 0, 4),
             });
             var targetButton = Theme.StyleButton(new Button
             {
                 Text = "下载位置",
-                Margin = new Padding(0, 0, 0, 6),
+                Margin = new Padding(0, 4, 0, 4),
             });
             foreach (var button in new[] { settingsButton, targetButton })
             {
@@ -298,7 +298,7 @@ namespace LcscStudio
                 var button = new Button
                 {
                     Text = tabNames[i],
-                    Margin = new Padding(0, 0, 6, 6),
+                    Margin = new Padding(0, 3, 6, 3),
                     Font = Theme.SmallFont,
                     FlatStyle = FlatStyle.Flat,
                     UseVisualStyleBackColor = false,
