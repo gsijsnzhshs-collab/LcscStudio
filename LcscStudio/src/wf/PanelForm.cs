@@ -71,8 +71,8 @@ namespace LcscStudio
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 44f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 56f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92f));
             Controls.Add(_root);
             var root = _root;
 
@@ -344,12 +344,14 @@ namespace LcscStudio
             };
             _importButton = Theme.StyleButton(new Button
             {
-                Text = "导入到库", Width = 108, Height = 30, Margin = new Padding(6, 2, 0, 2),
+                Text = "导入到库", Margin = new Padding(6, 2, 0, 2),
             }, true);
             _placeButton = Theme.StyleButton(new Button
             {
-                Text = "放置到原理图", Width = 122, Height = 30, Margin = new Padding(0, 2, 0, 2),
+                Text = "放置到原理图", Margin = new Padding(0, 2, 0, 2),
             });
+            Theme.SizeToText(_importButton, 30, 104);
+            Theme.SizeToText(_placeButton, 30, 130);
             _importButton.Click += OnImport;
             _placeButton.Click += OnPlace;
             buttonRow.Controls.Add(_importButton);
