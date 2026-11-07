@@ -20,7 +20,7 @@ namespace LcscStudio
         public static readonly Color InputBack = Color.FromArgb(0x1E, 0x1F, 0x22);
         public static readonly Color Border = Color.FromArgb(0x47, 0x47, 0x47);
         public static readonly Color Text = Color.FromArgb(0xE3, 0xE3, 0xE3);
-        public static readonly Color TextMuted = Color.FromArgb(0x9C, 0x9C, 0x9C);
+        public static readonly Color TextMuted = Color.FromArgb(0xB5, 0xB5, 0xB5);
         public static readonly Color Accent = Color.FromArgb(0x3C, 0x9B, 0xD8);
         public static readonly Color AccentHover = Color.FromArgb(0x4F, 0xB0, 0xEC);
         public static readonly Color AccentText = Color.FromArgb(0xFF, 0xFF, 0xFF);
@@ -33,7 +33,7 @@ namespace LcscStudio
 
         public static readonly Font UiFont = new Font("Microsoft YaHei UI", 9f);
         public static readonly Font TitleFont = new Font("Microsoft YaHei UI", 11f, FontStyle.Bold);
-        public static readonly Font SmallFont = new Font("Microsoft YaHei UI", 8.25f);
+        public static readonly Font SmallFont = new Font("Microsoft YaHei UI", 9f);
         public static readonly Font MonoFont = new Font("Consolas", 8.5f);
 
         public static void StyleForm(Form form)
@@ -131,6 +131,7 @@ namespace LcscStudio
         {
             button.AutoSize = false;
             button.Height = height;
+            button.TextAlign = ContentAlignment.MiddleCenter;
             var measured = TextRenderer.MeasureText(button.Text, button.Font).Width;
             button.Width = Math.Max(minWidth, measured + 22);
         }

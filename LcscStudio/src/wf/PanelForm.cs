@@ -98,7 +98,7 @@ namespace LcscStudio
             {
                 button.FlatAppearance.BorderSize = 0;
                 button.BackColor = Theme.Back;
-                button.ForeColor = Theme.TextMuted;
+                button.ForeColor = Theme.Text;
                 button.Font = Theme.SmallFont;
                 Theme.SizeToText(button, 26, 44);
             }
@@ -407,7 +407,7 @@ namespace LcscStudio
                 UseVisualStyleBackColor = false,
                 Cursor = Cursors.Hand,
                 BackColor = Theme.Back,
-                ForeColor = Theme.TextMuted,
+                ForeColor = Theme.Text,
             };
             _logToggle.FlatAppearance.BorderSize = 0;
             Theme.SizeToText(_logToggle, 24, 44);
