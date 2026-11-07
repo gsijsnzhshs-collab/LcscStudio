@@ -1,0 +1,22 @@
+PL LCSCLoader:ShowLCSCLoader
+    Command='LCSCLoader:ShowLCSCLoader'
+    Caption='LCSC &Component Import...'
+    Image=''
+    Shortcut1=''
+    Shortcut2=''
+    Params=''
+    Description='Import symbol, footprint and 3D model by LCSC part number'
+End
+
+Insertion LCSCL_InsSchTools TargetID='MNSchematic_Tools10' InsertType='After' RefID0='MNSchematic_Tools01'
+    Link LCSCL_LinkSchTools PLID='LCSCLoader:ShowLCSCLoader' End
+End
+Insertion LCSCL_InsSchLibTools TargetID='MNSchematic_SchLibMenuTools10' InsertType='After' RefID0='MNSchematic_SchLibMenuTools20'
+    Link LCSCL_LinkSchLibTools PLID='LCSCLoader:ShowLCSCLoader' End
+End
+Insertion LCSCL_InsPcbTools TargetID='MNPCB_Tools10' InsertType='After' RefID0='MNPCB_Tools20'
+    Link LCSCL_LinkPcbTools PLID='LCSCLoader:ShowLCSCLoader' End
+End
+Insertion LCSCL_InsPcbLibTools TargetID='MNPCBLib_Tools10' InsertType='After' RefID0='MNPCBLib_Tools15'
+    Link LCSCL_LinkPcbLibTools PLID='LCSCLoader:ShowLCSCLoader' End
+End

@@ -1,0 +1,132 @@
+using System;
+using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using System.Windows.Forms.Integration;
+using DXP;
+using LcscStudio;
+
+namespace LcscLoader
+{
+    internal static class LcscWindow
+    {
+        private static Form _form;
+
+        public static void Show()
+        {
+            if (_form == null || _form.IsDisposed)
+            {
+                PluginLog.Write("creating panel form");
+                _form = new ToolForm
+                {
+                    Text = "立创选料",
+                    AutoScaleMode = AutoScaleMode.None,
+                    Width = 600,
+                    Height = 1000,
+                    MinimumSize = new Size(520, 720),
+                    FormBorderStyle = FormBorderStyle.SizableToolWindow,
+                    ShowInTaskbar = false,
+                    StartPosition = FormStartPosition.Manual,
+                    MinimizeBox = false,
+                };
+                var control = new PanelControl();
+                var host = new ElementHost
+                {
+                    Dock = DockStyle.Fill,
+                    Child = control,
+                };
+                _form.Controls.Add(host);
+                _form.Shown += (sender, args) =>
+                {
+                    host.Focus();
+                    control.FocusSearch();
+                };
+
+                PositionBesideAd(_form);
+                _form.Show();
+                SetAdAsOwner(_form);
+
+            }
+            else
+            {
+                _form.Show();
+            }
+
+            PluginLog.Write("floating window shown");
+        }
+
+        private sealed class ToolForm : Form
+        {
+            protected override bool ShowWithoutActivation => true;
+        }
+
+        private static void PositionBesideAd(Form form)
+        {
+            try
+            {
+                var handle = new IntPtr((long)AdApi.Client.GetMainWindowHandle());
+                RECT rect;
+                if (handle == IntPtr.Zero || !GetWindowRect(handle, out rect)) return;
+
+                var width = form.Width;
+                var height = Math.Min(form.Height, Math.Max(640, rect.Bottom - rect.Top - 120));
+                form.Bounds = new Rectangle(
+                    Math.Max(0, rect.Right - width - 30),
+                    Math.Max(0, rect.Top + 90),
+                    width,
+                    height);
+            }
+            catch
+            {
+                // Fall through to the screen fallback below.
+            }
+
+            try
+            {
+                var area = Screen.PrimaryScreen.WorkingArea;
+                form.Bounds = new Rectangle(
+                    Math.Max(area.Left, area.Right - form.Width - 40),
+                    Math.Max(area.Top, area.Top + 80),
+                    form.Width,
+                    Math.Min(form.Height, area.Height - 120));
+            }
+            catch
+            {
+                // Keep the default bounds.
+            }
+        }
+
+        private static void SetAdAsOwner(Form form)
+        {
+            try
+            {
+                var owner = new IntPtr((long)AdApi.Client.GetMainWindowHandle());
+                if (owner != IntPtr.Zero)
+                    SetWindowLongPtr(form.Handle, -8, owner);
+            }
+            catch
+            {
+                // Ownership is a nicety; ignore failures.
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int Left, Top, Right, Bottom; }
+
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr")]
+        private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int index, IntPtr value);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowLong")]
+        private static extern IntPtr SetWindowLong32(IntPtr hWnd, int index, IntPtr value);
+
+        private static IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr value)
+        {
+            return IntPtr.Size == 8
+                ? SetWindowLongPtr64(hWnd, index, value)
+                : SetWindowLong32(hWnd, index, value);
+        }
+    }
+}

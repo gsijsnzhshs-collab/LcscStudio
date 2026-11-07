@@ -1,0 +1,25 @@
+ClientInsFile 1.0
+
+Server
+    EditorName        = 'LCSCLoader'
+    EditorExePath     = 'LcscLoader.dll'
+    EditorDescription = 'Import LCSC parts into Altium schematic and PCB libraries.'
+    Version           = 'Version 1.0.3.0'
+    Date              = '05-November-2026'
+    HelpAboutInfo     = 'Fetches symbols, footprints and 3D models from the LCSC (EasyEDA) component service.'
+    Copyright         = 'Copyright 2026'
+    Updates           = 'AdvSch'
+    SystemExtension   = True
+End
+
+PanelInfo
+    Name              = 'LCSCLoader'
+    Category          = '&System'
+    Bitmap            = ''
+    Hotkey            = 'L'
+    ButtonVisible     = True
+    CanDockVertical   = True
+    CanDockHorizontal = False
+End
+
+Command Name = 'ShowLCSCLoader' LongSummary = 'Import a component by its LCSC part number' End

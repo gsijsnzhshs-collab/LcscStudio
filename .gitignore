@@ -1,0 +1,49 @@
+# ---- 构建产物 ----
+LcscLoader/bin/
+LcscLoader/tests/bin/
+bin/
+obj/
+
+# ---- 探针/取证资产（归档到仓库外，见 docs/baseline-inventory.md）----
+_probe/
+
+# ---- 构建工具链（由 restore-tools.js 联网恢复）----
+_tools/roslyn/
+_tools/net48ref/
+_tools/*.nupkg
+
+# ---- 二进制与中间产物 ----
+*.exe
+*.dll
+*.pdb
+*.obj
+*.ilk
+*.lib
+*.exp
+*.res
+!fixtures/**/*.obj
+
+# ---- 模型/缓存/日志 ----
+*.step
+*.stp
+*.log
+*.bak
+*.tmp
+*.cache
+!fixtures/**/*.step
+
+# ---- 截图 ----
+*.png
+*.jpg
+*.jpeg
+*.bmp
+
+# ---- 本地审核文档（D6 未定，暂不入库）----
+Trae审核/
+
+# ---- IDE / 系统 ----
+.vs/
+*.user
+*.suo
+Thumbs.db
+desktop.ini

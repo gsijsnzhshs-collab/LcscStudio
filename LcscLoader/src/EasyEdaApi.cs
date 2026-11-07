@@ -1,0 +1,271 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
+
+namespace LcscLoader
+{
+    internal static class EasyEdaApi
+    {
+        private const string ComponentVersion = "6.4.19.5";
+
+        private static readonly string[] ApiHosts = { "https://easyeda.com", "https://lceda.cn" };
+        private static readonly string[] ModuleHosts = { "https://modules.easyeda.com", "https://modules.lceda.cn" };
+
+        private static readonly HttpClient Client = CreateClient();
+        private static readonly HttpClient DownloadClient = CreateDownloadClient();
+
+        private static HttpClient CreateClient()
+        {
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+            var handler = new HttpClientHandler
+            {
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+                UseCookies = true,
+            };
+            var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
+            return client;
+        }
+
+        private static HttpClient CreateDownloadClient()
+        {
+            var handler = new HttpClientHandler
+            {
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+            };
+            var client = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(3) };
+            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "*/*");
+            return client;
+        }
+
+        public static async Task<string> GetPartJsonAsync(string lcscId, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(lcscId))
+                throw new ArgumentException("未提供立创编号", nameof(lcscId));
+
+            Exception last = null;
+            foreach (var host in ApiHosts)
+            {
+                var url = string.Format("{0}/api/products/{1}/components?version={2}",
+                    host, lcscId.Trim(), ComponentVersion);
+                try
+                {
+                    using (var request = new HttpRequestMessage(HttpMethod.Get, url))
+                    {
+                        request.Headers.TryAddWithoutValidation("Referer", host + "/");
+                        request.Headers.TryAddWithoutValidation("Origin", host);
+                        using (var response = await Client.SendAsync(request, cancellationToken).ConfigureAwait(false))
+                        {
+                            if (!response.IsSuccessStatusCode)
+                            {
+                                last = new InvalidOperationException(
+                                    string.Format("立创商城接口返回 HTTP {0}（{1}）", (int)response.StatusCode, url));
+                                continue;
+                            }
+                            return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    last = ex;
+                }
+            }
+            throw new InvalidOperationException("无法访问立创商城接口，请检查网络。", last);
+        }
+
+        public static async Task<LcscPart> GetPartAsync(string lcscId, CancellationToken cancellationToken)
+        {
+            var json = await GetPartJsonAsync(lcscId, cancellationToken).ConfigureAwait(false);
+            return EasyEdaParser.Parse(lcscId.Trim(), json);
+        }
+
+        // Tries to obtain the STEP model. The identifier may be an EasyEDA 3D library
+        // UUID (docType 16) or the asset UUID used by the module host.
+        public static async Task<byte[]> DownloadStepAsync(string uuid, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(uuid)) return null;
+            uuid = uuid.Trim();
+
+            var direct = await TryDownloadFromModulesAsync(
+                "/qAxj6KHrDKw4blvCG8QJPs7Y/" + Uri.EscapeDataString(uuid), cancellationToken)
+                .ConfigureAwait(false);
+            if (IsStep(direct)) return direct;
+
+            var asset = await ResolveAssetUuidAsync(uuid, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(asset) || string.Equals(asset, uuid, StringComparison.OrdinalIgnoreCase))
+                return IsStep(direct) ? direct : null;
+
+            var fromAsset = await TryDownloadFromModulesAsync(
+                "/qAxj6KHrDKw4blvCG8QJPs7Y/" + Uri.EscapeDataString(asset), cancellationToken)
+                .ConfigureAwait(false);
+            if (IsStep(fromAsset)) return fromAsset;
+
+            return IsStep(direct) ? direct : null;
+        }
+
+        public static async Task<byte[]> DownloadObjAsync(string uuid, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(uuid)) return null;
+            uuid = uuid.Trim();
+
+            var direct = await TryDownloadFromModulesAsync(
+                "/3dmodel/" + Uri.EscapeDataString(uuid), cancellationToken).ConfigureAwait(false);
+            if (IsObj(direct)) return direct;
+
+            var asset = await ResolveAssetUuidAsync(uuid, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(asset) || string.Equals(asset, uuid, StringComparison.OrdinalIgnoreCase))
+                return IsObj(direct) ? direct : null;
+
+            var fromAsset = await TryDownloadFromModulesAsync(
+                "/3dmodel/" + Uri.EscapeDataString(asset), cancellationToken).ConfigureAwait(false);
+            return IsObj(fromAsset) ? fromAsset : (IsObj(direct) ? direct : null);
+        }
+
+        private static async Task<string> ResolveAssetUuidAsync(string uuid, CancellationToken cancellationToken)
+        {
+            foreach (var host in ApiHosts)
+            {
+                var url = host + "/api/components/" + Uri.EscapeDataString(uuid);
+                try
+                {
+                    using (var request = new HttpRequestMessage(HttpMethod.Get, url))
+                    {
+                        request.Headers.TryAddWithoutValidation("Referer", host + "/");
+                        using (var response = await Client.SendAsync(request, cancellationToken).ConfigureAwait(false))
+                        {
+                            if (!response.IsSuccessStatusCode) continue;
+                            var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                            var root = JObject.Parse(text);
+                            var result = JsonUtil.Obj(root["result"]);
+                            if (!result.HasValues) continue;
+
+                            var docType = (int)JsonUtil.Num(result["docType"]);
+                            if (docType != 16 && docType != 0) continue;
+
+                            var document = result["dataStr"];
+                            if (document != null && document.Type == JTokenType.String)
+                            {
+                                try { document = JObject.Parse((string)document); }
+                                catch { continue; }
+                            }
+                            var head = JsonUtil.Obj(document?["head"]);
+                            var asset = JsonUtil.Str(head["uuid"]);
+                            if (!string.IsNullOrEmpty(asset)) return asset;
+
+                            var fallback = JsonUtil.Str(result["uuid"]);
+                            if (!string.IsNullOrEmpty(fallback)) return fallback;
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Try the next host.
+                }
+            }
+            return null;
+        }
+
+        private static async Task<byte[]> TryDownloadFromModulesAsync(string path, CancellationToken cancellationToken)
+        {
+            foreach (var host in ModuleHosts)
+            {
+                try
+                {
+                    using (var response = await DownloadClient.GetAsync(host + path, cancellationToken).ConfigureAwait(false))
+                    {
+                        if (!response.IsSuccessStatusCode) continue;
+                        var bytes = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                        if (bytes != null && bytes.Length > 64) return bytes;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Try the next host.
+                }
+            }
+            return null;
+        }
+
+        private static bool IsStep(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length < 64) return false;
+            var head = Encoding.ASCII.GetString(bytes, 0, Math.Min(256, bytes.Length));
+            return head.IndexOf("ISO-10303", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   head.IndexOf("HEADER;", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsObj(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length < 32) return false;
+            var head = Encoding.ASCII.GetString(bytes, 0, Math.Min(512, bytes.Length));
+            return head.IndexOf("\nv ", StringComparison.Ordinal) >= 0 ||
+                   head.StartsWith("v ", StringComparison.Ordinal) ||
+                   head.IndexOf("\r\nv ", StringComparison.Ordinal) >= 0;
+        }
+
+        // The OBJ bounding box supplies the rotation anchor used when placing a
+        // model: ((minX+maxX)/2, (minY+maxY)/2, minZ), in the model's units.
+        public static bool TryGetObjAnchor(byte[] objBytes, out double x, out double y, out double z)
+        {
+            x = y = z = 0;
+            if (objBytes == null || objBytes.Length == 0) return false;
+
+            double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
+            double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+            var count = 0;
+
+            using (var reader = new StreamReader(new MemoryStream(objBytes), Encoding.ASCII))
+            {
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    if (line.Length < 2 || line[0] != 'v' || line[1] != ' ') continue;
+                    var fields = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (fields.Length < 4) continue;
+                    if (!double.TryParse(fields[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var vx)) continue;
+                    if (!double.TryParse(fields[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var vy)) continue;
+                    if (!double.TryParse(fields[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var vz)) continue;
+
+                    if (vx < minX) minX = vx;
+                    if (vx > maxX) maxX = vx;
+                    if (vy < minY) minY = vy;
+                    if (vy > maxY) maxY = vy;
+                    if (vz < minZ) minZ = vz;
+                    if (vz > maxZ) maxZ = vz;
+                    count++;
+                }
+            }
+
+            if (count == 0) return false;
+            x = (minX + maxX) / 2.0;
+            y = (minY + maxY) / 2.0;
+            z = minZ;
+            return true;
+        }
+    }
+}
