@@ -198,6 +198,64 @@ namespace LcscStudio
             };
         }
 
+        // 浅色系统勾选框放在深色底上几乎看不见，方框与对勾全部自绘。
+        public static void StyleCheckBox(CheckBox check)
+        {
+            check.FlatStyle = FlatStyle.Flat;
+            check.Font = UiFont;
+            check.ForeColor = Text;
+            check.BackColor = check.Parent != null ? check.Parent.BackColor : Back;
+            check.Paint += (s, e) => PaintCheckBox((CheckBox)s, e);
+        }
+
+        private static void PaintCheckBox(CheckBox check, PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            using (var fill = new SolidBrush(check.BackColor))
+            {
+                g.FillRectangle(fill, check.ClientRectangle);
+            }
+            var size = Math.Max(12, check.Font.Height - 4);
+            if (size > check.Height - 2)
+            {
+                size = Math.Max(12, check.Height - 2);
+            }
+            var box = new Rectangle(1, (check.Height - size) / 2, size, size);
+            using (var back = new SolidBrush(InputBack))
+            using (var pen = new Pen(check.Enabled ? Border : SurfaceAlt))
+            {
+                g.FillRectangle(back, box);
+                g.DrawRectangle(pen, box);
+            }
+            if (check.Checked)
+            {
+                using (var pen = new Pen(check.Enabled ? Accent : TextMuted, Math.Max(2f, size / 7f)))
+                {
+                    pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                    pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                    pen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+                    g.DrawLines(pen, new[]
+                    {
+                        new PointF(box.Left + size * 0.20f, box.Top + size * 0.52f),
+                        new PointF(box.Left + size * 0.42f, box.Top + size * 0.74f),
+                        new PointF(box.Left + size * 0.80f, box.Top + size * 0.28f),
+                    });
+                }
+            }
+            var offset = box.Right + 6;
+            if (offset < check.Width)
+            {
+                TextRenderer.DrawText(
+                    g,
+                    check.Text,
+                    check.Font,
+                    new Rectangle(offset, 0, check.Width - offset, check.Height),
+                    check.Enabled ? check.ForeColor : TextMuted,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
+                    TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+            }
+        }
+
         // Fixed-height, text-measured width: AutoSize alone under-measures flat
         // buttons and clips the glyph bottoms on high-DPI or narrow panels.
         public static void SizeToText(Button button, int height, int minWidth = 0)
@@ -267,10 +325,7 @@ namespace LcscStudio
                 }
                 else if (control is CheckBox check)
                 {
-                    check.FlatStyle = FlatStyle.Flat;
-                    check.BackColor = Color.Transparent;
-                    check.ForeColor = Text;
-                    check.Font = UiFont;
+                    StyleCheckBox(check);
                 }
                 else if (control is RadioButton radio)
                 {
