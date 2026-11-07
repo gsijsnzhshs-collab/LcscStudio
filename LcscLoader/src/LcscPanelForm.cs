@@ -17,19 +17,28 @@ namespace LcscLoader
 
         private Size _lastSize;
 
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetParent(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int Left, Top, Right, Bottom; }
+
         public LcscPanelForm()
         {
             Text = PanelCaption;
             AutoScaleMode = AutoScaleMode.None;
             Controls.Add(new LcscStudio.PanelForm { Dock = DockStyle.Fill });
 
-            // AD can host the panel in a narrower container than ServerPanelForm's
-            // default size; adopt the host size so content is never clipped.
-            var fitTimer = new Timer { Interval = 800 };
+            // ServerPanelForm keeps its design size (433x1328) while AD hosts it in a
+            // narrower container (289x885); adopt the native host client size.
+            var fitTimer = new Timer { Interval = 1200 };
             var ticks = 0;
             fitTimer.Tick += (s, e) =>
             {
-                if (++ticks > 6) { fitTimer.Stop(); fitTimer.Dispose(); return; }
+                if (++ticks > 12) { fitTimer.Stop(); fitTimer.Dispose(); return; }
                 FitToHost();
             };
             fitTimer.Start();
@@ -37,12 +46,22 @@ namespace LcscLoader
 
         private void FitToHost()
         {
-            var host = Parent;
-            if (host == null || host.ClientSize.Width < 200) return;
-            if (Width == host.ClientSize.Width && Height == host.ClientSize.Height) return;
+            if (!IsHandleCreated) return;
+            var host = GetParent(Handle);
+            if (host == IntPtr.Zero)
+            {
+                LcscLoader.PluginLog.Write("docked panel fit: no host window");
+                return;
+            }
+            RECT rect;
+            if (!GetClientRect(host, out rect)) return;
+            var width = rect.Right - rect.Left;
+            var height = rect.Bottom - rect.Top;
+            if (width < 200 || height < 200) return;
+            if (Width == width && Height == height) return;
             LcscLoader.PluginLog.Write("docked panel fit " + Width + "x" + Height +
-                " -> " + host.ClientSize.Width + "x" + host.ClientSize.Height);
-            Size = host.ClientSize;
+                " -> host " + width + "x" + height);
+            Size = new Size(width, height);
         }
 
         protected override void OnLoad(EventArgs e)
