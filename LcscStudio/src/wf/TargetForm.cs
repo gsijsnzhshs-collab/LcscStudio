@@ -33,7 +33,7 @@ namespace LcscStudio
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            Font = new Font("Microsoft YaHei UI", 9f);
+            Theme.StyleForm(this);
 
             var libraryGroup = new GroupBox { Text = "库文件位置", Left = 12, Top = 12, Width = 590, Height = 300 };
             Controls.Add(libraryGroup);
@@ -112,6 +112,9 @@ namespace LcscStudio
             cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(ok);
             Controls.Add(cancel);
+            Theme.ApplyRecursive(this);
+            Theme.StyleButton(ok, true);
+            Theme.ApplyButtons(this, ok);
 
             _newMode.CheckedChanged += (s, e) => UpdateMode();
             _mergeMode.CheckedChanged += (s, e) => UpdateMode();

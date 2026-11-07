@@ -14,7 +14,7 @@ namespace LcscStudio
         public SymbolCanvas()
         {
             DoubleBuffered = true;
-            BackColor = Color.White;
+            BackColor = Theme.Canvas;
         }
 
         public EeSymbol Symbol
@@ -27,7 +27,8 @@ namespace LcscStudio
         {
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Color.White);
+            g.Clear(Theme.Canvas);
+            DrawGrid(g);
             if (_symbol == null)
             {
                 DrawEmpty(g, "无符号数据");
@@ -175,7 +176,7 @@ namespace LcscStudio
                         {
                             var p = Map(MX(shape.X), MY(shape.Y));
                             var size = Math.Max(7f, (float)(shape.FontSize * EeUnits.MmPerUnit * scale));
-                            using (var br = new SolidBrush(Conv.HasPaint(shape.Stroke) ? color : Color.Black))
+                            using (var br = new SolidBrush(Conv.HasPaint(shape.Stroke) ? color : Theme.CanvasInk))
                             using (var font = new Font("Tahoma", size * 0.55f))
                             {
                                 var textSize = g.MeasureString(shape.Text, font);
@@ -187,10 +188,10 @@ namespace LcscStudio
                 }
             }
 
-            using (var pinPen = new Pen(Color.Maroon, Math.Max(1f, (float)(0.18 * scale))))
-            using (var dot = new SolidBrush(Color.Maroon))
-            using (var numBrush = new SolidBrush(Color.DimGray))
-            using (var nameBrush = new SolidBrush(Color.SteelBlue))
+            using (var pinPen = new Pen(Theme.PinInk, Math.Max(1f, (float)(0.18 * scale))))
+            using (var dot = new SolidBrush(Theme.PinInk))
+            using (var numBrush = new SolidBrush(Theme.TextMuted))
+            using (var nameBrush = new SolidBrush(Theme.Accent))
             using (var numFont = new Font("Tahoma", Math.Max(6f, (float)(0.8 * scale * 0.55))))
             {
                 foreach (var pin in _symbol.Pins)
@@ -272,10 +273,20 @@ namespace LcscStudio
             catch { return fallback; }
         }
 
+        private void DrawGrid(Graphics g)
+        {
+            const int step = 24;
+            using (var pen = new Pen(Theme.CanvasGrid))
+            {
+                for (var x = 0; x < Width; x += step) g.DrawLine(pen, x, 0, x, Height);
+                for (var y = 0; y < Height; y += step) g.DrawLine(pen, 0, y, Width, y);
+            }
+        }
+
         private void DrawEmpty(Graphics g, string text)
         {
             using (var font = new Font("Microsoft YaHei UI", 10f))
-            using (var brush = new SolidBrush(Color.Gray))
+            using (var brush = new SolidBrush(Theme.TextMuted))
             {
                 var size = g.MeasureString(text, font);
                 g.DrawString(text, font, brush, (Width - size.Width) / 2, (Height - size.Height) / 2);
@@ -290,7 +301,7 @@ namespace LcscStudio
         public FootprintCanvas()
         {
             DoubleBuffered = true;
-            BackColor = Color.White;
+            BackColor = Theme.Canvas;
         }
 
         public EeFootprint Footprint
@@ -303,7 +314,8 @@ namespace LcscStudio
         {
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Color.White);
+            g.Clear(Theme.Canvas);
+            DrawGrid(g);
             if (_footprint == null)
             {
                 DrawEmpty(g, "无封装数据");
@@ -531,10 +543,20 @@ namespace LcscStudio
             return path;
         }
 
+        private void DrawGrid(Graphics g)
+        {
+            const int step = 24;
+            using (var pen = new Pen(Theme.CanvasGrid))
+            {
+                for (var x = 0; x < Width; x += step) g.DrawLine(pen, x, 0, x, Height);
+                for (var y = 0; y < Height; y += step) g.DrawLine(pen, 0, y, Width, y);
+            }
+        }
+
         private void DrawEmpty(Graphics g, string text)
         {
             using (var font = new Font("Microsoft YaHei UI", 10f))
-            using (var brush = new SolidBrush(Color.Gray))
+            using (var brush = new SolidBrush(Theme.TextMuted))
             {
                 var size = g.MeasureString(text, font);
                 g.DrawString(text, font, brush, (Width - size.Width) / 2, (Height - size.Height) / 2);
