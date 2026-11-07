@@ -44,6 +44,44 @@ namespace LcscStudio
             EnableDarkTitleBar(form);
         }
 
+        // Altium 运行在 System DPI 感知模式，WinForms 认为窗口仍是 96 DPI
+        // （DeviceDpi 恒为 96），而 GDI 已按 144 DPI 渲染字体。按 96 DPI 摆放的
+        // 对话框会被放大后的文字挤满，这里按实际 DPI 手动缩放一次布局。
+        public static void ScaleFormToDpi(Form form)
+        {
+            var handle = form.Handle;
+            using (var graphics = form.CreateGraphics())
+            {
+                var factor = graphics.DpiX / 96f;
+                if (factor < 1.02f)
+                {
+                    return;
+                }
+                form.SuspendLayout();
+                foreach (Control child in form.Controls)
+                {
+                    ScaleBounds(child, factor);
+                }
+                form.ClientSize = new Size(
+                    (int)Math.Round(form.ClientSize.Width * factor),
+                    (int)Math.Round(form.ClientSize.Height * factor));
+                form.ResumeLayout(true);
+            }
+        }
+
+        private static void ScaleBounds(Control control, float factor)
+        {
+            control.Bounds = new Rectangle(
+                (int)Math.Round(control.Left * factor),
+                (int)Math.Round(control.Top * factor),
+                (int)Math.Round(control.Width * factor),
+                (int)Math.Round(control.Height * factor));
+            foreach (Control child in control.Controls)
+            {
+                ScaleBounds(child, factor);
+            }
+        }
+
         public static void EnableDarkTitleBar(Form form)
         {
             void Apply()

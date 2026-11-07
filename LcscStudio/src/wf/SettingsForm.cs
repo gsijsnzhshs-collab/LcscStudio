@@ -20,7 +20,7 @@ namespace LcscStudio
             _draft = settings.Clone();
             Text = "设置";
             Width = 540;
-            Height = 400;
+            Height = 424;
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -75,8 +75,8 @@ namespace LcscStudio
             cacheGroup.Controls.Add(openCache);
             Controls.Add(cacheGroup);
 
-            var ok = new Button { Text = "确定", Left = 336, Top = 336, Width = 84, Height = 28 };
-            var cancel = new Button { Text = "取消", Left = 428, Top = 336, Width = 84, Height = 28 };
+            var ok = new Button { Text = "确定", Left = 346, Top = 340, Width = 84, Height = 28 };
+            var cancel = new Button { Text = "取消", Left = 438, Top = 340, Width = 84, Height = 28 };
             ok.Click += (s, e) => Confirm();
             cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(ok);
@@ -84,6 +84,7 @@ namespace LcscStudio
             Theme.ApplyRecursive(this);
             Theme.StyleButton(ok, true);
             Theme.ApplyButtons(this, ok);
+            Theme.ScaleFormToDpi(this);
         }
 
         private void ChangeTarget()

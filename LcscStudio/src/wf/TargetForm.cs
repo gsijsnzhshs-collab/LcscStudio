@@ -28,7 +28,7 @@ namespace LcscStudio
             _draft = settings.Clone();
             Text = "下载位置";
             Width = 620;
-            Height = 470;
+            Height = 496;
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -106,8 +106,8 @@ namespace LcscStudio
             optionsGroup.Controls.Add(_overwrite);
             optionsGroup.Controls.Add(_place);
 
-            var ok = new Button { Text = "确定", Left = 424, Top = 408, Width = 84, Height = 28 };
-            var cancel = new Button { Text = "取消", Left = 516, Top = 408, Width = 84, Height = 28 };
+            var ok = new Button { Text = "确定", Left = 426, Top = 412, Width = 84, Height = 28 };
+            var cancel = new Button { Text = "取消", Left = 518, Top = 412, Width = 84, Height = 28 };
             ok.Click += (s, e) => Confirm();
             cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(ok);
@@ -126,6 +126,7 @@ namespace LcscStudio
                 if (!_footprint.Checked) _model.Checked = false;
             };
             UpdateMode();
+            Theme.ScaleFormToDpi(this);
         }
 
         private void UpdateMode()
