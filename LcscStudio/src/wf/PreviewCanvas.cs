@@ -372,20 +372,21 @@ namespace LcscStudio
                         {
                             var c = Map(shape.X, shape.Y);
                             var r = (float)(shape.Radius * scale);
-                            using (var white = new SolidBrush(Color.White))
-                                g.FillEllipse(white, c.X - r, c.Y - r, r * 2, r * 2);
-                            g.DrawEllipse(pen, c.X - r, c.Y - r, r * 2, r * 2);
+                            using (var hole = new SolidBrush(Theme.Canvas))
+                                g.FillEllipse(hole, c.X - r, c.Y - r, r * 2, r * 2);
+                            using (var edge = new Pen(Theme.Border))
+                                g.DrawEllipse(edge, c.X - r, c.Y - r, r * 2, r * 2);
                             break;
                         }
                         case EeFpKind.Via:
                         {
                             var c = Map(shape.X, shape.Y);
                             var r = (float)(shape.Diameter * scale / 2);
-                            using (var fill = new SolidBrush(Color.FromArgb(180, color)))
+                            using (var fill = new SolidBrush(color))
                                 g.FillEllipse(fill, c.X - r, c.Y - r, r * 2, r * 2);
                             var hr = (float)(shape.Radius * scale);
-                            using (var white = new SolidBrush(Color.White))
-                                g.FillEllipse(white, c.X - hr, c.Y - hr, hr * 2, hr * 2);
+                            using (var hole = new SolidBrush(Theme.Canvas))
+                                g.FillEllipse(hole, c.X - hr, c.Y - hr, hr * 2, hr * 2);
                             break;
                         }
                         case EeFpKind.Text:
@@ -401,7 +402,7 @@ namespace LcscStudio
             }
 
             var center = Map(originX, originY);
-            using (var cross = new Pen(Color.Gray))
+            using (var cross = new Pen(Theme.TextMuted))
             {
                 g.DrawLine(cross, center.X - 8, center.Y, center.X + 8, center.Y);
                 g.DrawLine(cross, center.X, center.Y - 8, center.X, center.Y + 8);
@@ -414,7 +415,7 @@ namespace LcscStudio
             var w = (float)Math.Max(0.6, pad.Width * scale);
             var h = (float)Math.Max(0.6, pad.Height * scale);
 
-            using (var fill = new SolidBrush(Color.FromArgb(190, color)))
+            using (var fill = new SolidBrush(color))
             using (var pen = new Pen(Darken(color), 1.2f))
             {
                 var state = g.Save();
@@ -429,12 +430,6 @@ namespace LcscStudio
                         g.DrawEllipse(pen, rect);
                         break;
                     case "POLYGON":
-                        using (var path = RoundedRect(rect, Math.Min(w, h) * 0.25f))
-                        {
-                            g.FillPath(fill, path);
-                            g.DrawPath(pen, path);
-                        }
-                        break;
                     case "OCT":
                         using (var path = Octagon(w / 2, h / 2))
                         {
@@ -454,18 +449,14 @@ namespace LcscStudio
                 {
                     if (pad.HolePoints.Count >= 2)
                     {
-                        using (var white = new Pen(Color.White, drill))
-                            g.DrawLine(white, map(pad.HolePoints[0].X, pad.HolePoints[0].Y),
+                        using (var hole = new Pen(Theme.Canvas, drill))
+                            g.DrawLine(hole, map(pad.HolePoints[0].X, pad.HolePoints[0].Y),
                                 map(pad.HolePoints[1].X, pad.HolePoints[1].Y));
                     }
                     else
                     {
-                        using (var white = new SolidBrush(Color.White))
-                        using (var gray = new Pen(Color.Gray, 1f))
-                        {
-                            g.FillEllipse(white, c.X - drill / 2, c.Y - drill / 2, drill, drill);
-                            g.DrawEllipse(gray, c.X - drill / 2, c.Y - drill / 2, drill, drill);
-                        }
+                        using (var hole = new SolidBrush(Theme.Canvas))
+                            g.FillEllipse(hole, c.X - drill / 2, c.Y - drill / 2, drill, drill);
                     }
                 }
             }

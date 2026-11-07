@@ -119,6 +119,7 @@ namespace LcscStudio
             header.Controls.Add(title, 0, 0);
             header.Controls.Add(actions, 1, 0);
             root.Controls.Add(header, 0, 0);
+            Theme.AddBottomBorder(header, Theme.SurfaceAlt);
 
             var searchRow = new TableLayoutPanel
             {
@@ -184,6 +185,7 @@ namespace LcscStudio
                 ForeColor = Theme.TextMuted,
                 Font = Theme.SmallFont,
                 Margin = new Padding(0),
+                AutoEllipsis = true,
             };
             var prevButton = Theme.StyleButton(new Button { Text = "◀", Width = 24, Height = 20, Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0) });
             var nextButton = Theme.StyleButton(new Button { Text = "▶", Width = 24, Height = 20, Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0) });
@@ -217,14 +219,21 @@ namespace LcscStudio
                 ImageSize = new Size(1, 22),
                 ColorDepth = ColorDepth.Depth32Bit,
             };
+            _list.OwnerDraw = true;
+            _list.DrawItem += DrawRow;
+            _list.DrawSubItem += DrawCell;
+            Theme.EnableDarkScrollbars(_list);
+            _list.HandleCreated += (s, e) =>
+                SendMessage(_list.Handle, 0x1036, new IntPtr(0x00010000), new IntPtr(0x00010000));
             _list.SelectedIndexChanged += (s, e) =>
             {
                 if (_list.SelectedItems.Count > 0 && _list.SelectedItems[0].Tag is SearchItem item)
                     LoadDetails(item);
             };
-            _list.SizeChanged += (s, e) => AdjustColumns();
+            _list.SizeChanged += (s, e) => LayoutColumns();
             listPanel.Controls.Add(_list);
             var columnHeader = BuildColumnHeader();
+            Theme.AddBottomBorder(columnHeader, Color.FromArgb(0x2A, 0x2A, 0x2A));
             listPanel.Controls.Add(columnHeader);
             listPanel.Controls.Add(infoRow);
             columnHeader.BringToFront();
@@ -332,6 +341,7 @@ namespace LcscStudio
             footer.Controls.Add(buttonRow);
             footer.Controls.Add(_targetLabel);
             root.Controls.Add(footer, 0, 4);
+            Theme.AddTopBorder(footer);
 
             _log = new TextBox
             {
@@ -341,6 +351,7 @@ namespace LcscStudio
                 ScrollBars = ScrollBars.Vertical,
             };
             Theme.StyleTextBox(_log, true);
+            Theme.EnableDarkScrollbars(_log);
             _logBody = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -395,10 +406,11 @@ namespace LcscStudio
             logHeader.Controls.Add(_logToggle, 1, 0);
             root.Controls.Add(logHeader, 0, 5);
             root.Controls.Add(_logBody, 0, 6);
+            Theme.AddTopBorder(logHeader);
 
             UpdatePagerButtons();
             SelectPreviewTab(0);
-            AdjustColumns();
+            LayoutColumns();
         }
 
         private void SelectPreviewTab(int index)
@@ -502,20 +514,59 @@ namespace LcscStudio
                     ForeColor = Theme.TextMuted,
                     Font = Theme.SmallFont,
                     Margin = new Padding(2, 0, 2, 0),
+                    AutoEllipsis = true,
                 }, i, 0);
             }
             _headerTable = table;
             return table;
         }
 
-        private void AdjustColumns()
+        private void LayoutColumns()
         {
-            if (_headerTable == null || _list.Columns.Count < 2) return;
-            const int fixedWidth = 82 + 78 + 52 + 52;
-            var nameWidth = _list.ClientSize.Width - fixedWidth - 2;
-            if (nameWidth < 80) nameWidth = 80;
-            if (_list.Columns[1].Width != nameWidth) _list.Columns[1].Width = nameWidth;
-            if (_headerTable.ColumnStyles.Count > 1) _headerTable.ColumnStyles[1].Width = nameWidth;
+            if (_headerTable == null || _list.Columns.Count < 5) return;
+            var width = _list.ClientSize.Width - 2;
+            if (width < 240) width = 240;
+            var id = Math.Max(76, (int)(width * 0.20));
+            var name = Math.Max(64, (int)(width * 0.28));
+            var package = Math.Max(60, (int)(width * 0.22));
+            var stock = Math.Max(44, (int)(width * 0.14));
+            var price = Math.Max(44, width - id - name - package - stock);
+            var widths = new[] { id, name, package, stock, price };
+            for (var i = 0; i < widths.Length; i++)
+            {
+                _list.Columns[i].Width = widths[i];
+                if (_headerTable.ColumnStyles.Count > i)
+                    _headerTable.ColumnStyles[i].Width = widths[i];
+            }
+        }
+
+        private void DrawRow(object sender, DrawListViewItemEventArgs e)
+        {
+            var back = e.Item.Selected
+                ? Theme.Accent
+                : (e.ItemIndex % 2 == 0 ? Theme.InputBack : Color.FromArgb(0x23, 0x24, 0x28));
+            using (var brush = new SolidBrush(back))
+                e.Graphics.FillRectangle(brush, e.Bounds);
+            using (var pen = new Pen(Color.FromArgb(0x30, 0x30, 0x30)))
+                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+        }
+
+        private void DrawCell(object sender, DrawListViewSubItemEventArgs e)
+        {
+            var fore = e.Item.Selected
+                ? Color.White
+                : (e.ColumnIndex >= 3 ? Theme.TextMuted : Theme.Text);
+            var rect = e.Bounds;
+            rect.Inflate(-6, 0);
+            var align = e.ColumnIndex >= 3 ? TextFormatFlags.Right : TextFormatFlags.Left;
+            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, Theme.UiFont, rect, fore,
+                align | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            if (e.ColumnIndex < e.Item.SubItems.Count - 1)
+            {
+                using (var pen = new Pen(Color.FromArgb(0x33, 0x33, 0x33)))
+                    e.Graphics.DrawLine(pen, e.Bounds.Right - 1, e.Bounds.Top + 2,
+                        e.Bounds.Right - 1, e.Bounds.Bottom - 3);
+            }
         }
 
         private async void RunSearch()

@@ -27,7 +27,7 @@ namespace LcscStudio
             MinimizeBox = false;
             Theme.StyleForm(this);
 
-            var searchGroup = new GroupBox { Text = "搜索", Left = 12, Top = 12, Width = 510, Height = 70 };
+            var searchGroup = new SectionPanel("搜索") { Left = 12, Top = 12, Width = 510, Height = 70 };
             searchGroup.Controls.Add(new Label { Text = "每页结果数", Left = 12, Top = 28, Width = 80 });
             _pageSize = new ComboBox { Left = 100, Top = 24, Width = 100, DropDownStyle = ComboBoxStyle.DropDownList };
             _pageSize.Items.AddRange(new object[] { 20, 30, 50, 100 });
@@ -35,7 +35,7 @@ namespace LcscStudio
             searchGroup.Controls.Add(_pageSize);
             Controls.Add(searchGroup);
 
-            var libraryGroup = new GroupBox { Text = "默认下载位置", Left = 12, Top = 90, Width = 510, Height = 100 };
+            var libraryGroup = new SectionPanel("默认下载位置") { Left = 12, Top = 90, Width = 510, Height = 100 };
             _targetSummary = new Label
             {
                 Left = 12,
@@ -61,7 +61,7 @@ namespace LcscStudio
             Controls.Add(overwriteBox);
             _overwrite = overwriteBox;
 
-            var cacheGroup = new GroupBox { Text = "缓存", Left = 12, Top = 236, Width = 510, Height = 90 };
+            var cacheGroup = new SectionPanel("缓存") { Left = 12, Top = 236, Width = 510, Height = 90 };
             cacheGroup.Controls.Add(new Label
             {
                 Text = PartCache.Root,

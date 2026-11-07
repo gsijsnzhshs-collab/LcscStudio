@@ -35,7 +35,7 @@ namespace LcscStudio
             MinimizeBox = false;
             Theme.StyleForm(this);
 
-            var libraryGroup = new GroupBox { Text = "库文件位置", Left = 12, Top = 12, Width = 590, Height = 300 };
+            var libraryGroup = new SectionPanel("库文件位置") { Left = 12, Top = 12, Width = 590, Height = 300 };
             Controls.Add(libraryGroup);
 
             _newMode = new RadioButton
@@ -93,7 +93,7 @@ namespace LcscStudio
             browsePcb.Click += (s, e) => BrowseFile(_mergePcb, "PcbLib");
             libraryGroup.Controls.Add(browsePcb);
 
-            var optionsGroup = new GroupBox { Text = "导入内容", Left = 12, Top = 320, Width = 590, Height = 80 };
+            var optionsGroup = new SectionPanel("导入内容") { Left = 12, Top = 320, Width = 590, Height = 80 };
             Controls.Add(optionsGroup);
             _symbol = new CheckBox { Text = "原理图符号", Left = 12, Top = 22, Width = 100, Checked = _draft.ImportSymbol };
             _footprint = new CheckBox { Text = "PCB 封装", Left = 120, Top = 22, Width = 90, Checked = _draft.ImportFootprint };
