@@ -49,15 +49,6 @@ namespace LcscLoader
         {
             PluginContext.Client = client;
             PluginLog.Write("LcscModule ctor");
-            var timer = new System.Windows.Forms.Timer { Interval = 10000 };
-            timer.Tick += (sender, args) =>
-            {
-                timer.Stop();
-                timer.Dispose();
-                try { ShowPanel(); }
-                catch (Exception ex) { PluginLog.Write("auto show failed: " + ex); }
-            };
-            timer.Start();
         }
 
         protected override IServerDocument NewDocumentInstance(string kind, string fileName)

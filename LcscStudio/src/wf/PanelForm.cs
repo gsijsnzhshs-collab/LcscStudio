@@ -66,37 +66,18 @@ namespace LcscStudio
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 44f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 56f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 84f));
             Controls.Add(_root);
             var root = _root;
 
-            var header = new TableLayoutPanel
+            var header = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                Margin = new Padding(0, 0, 0, 2),
-                BackColor = Theme.Back,
-            };
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-            var title = new Label
-            {
-                Text = "立创选料",
-                Font = Theme.TitleFont,
-                Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleLeft,
-                ForeColor = Theme.Text,
-                Margin = new Padding(0),
-            };
-            var actions = new FlowLayoutPanel
-            {
-                AutoSize = true,
                 FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
-                Margin = new Padding(0),
+                Margin = new Padding(0, 0, 0, 2),
                 BackColor = Theme.Back,
             };
             var settingsButton = Theme.StyleButton(new Button
@@ -126,10 +107,8 @@ namespace LcscStudio
             }
             settingsButton.Click += (s2, e2) => OpenSettings();
             targetButton.Click += (s2, e2) => ChangeTarget();
-            actions.Controls.Add(settingsButton);
-            actions.Controls.Add(targetButton);
-            header.Controls.Add(title, 0, 0);
-            header.Controls.Add(actions, 1, 0);
+            header.Controls.Add(settingsButton);
+            header.Controls.Add(targetButton);
             root.Controls.Add(header, 0, 0);
             Theme.AddBottomBorder(header, Theme.SurfaceAlt);
 
@@ -248,7 +227,10 @@ namespace LcscStudio
             _list.DrawItem += DrawRow;
             Theme.EnableDarkScrollbars(_list);
             _list.HandleCreated += (s, e) =>
+            {
                 SendMessage(_list.Handle, 0x1036, new IntPtr(0x00010000), new IntPtr(0x00010000));
+                LayoutColumns();
+            };
             _list.SelectedIndexChanged += (s, e) =>
             {
                 if (_list.SelectedItems.Count > 0 && _list.SelectedItems[0].Tag is SearchItem item)
@@ -349,11 +331,11 @@ namespace LcscStudio
             {
                 Text = TargetShortText(),
                 Dock = DockStyle.Top,
-                Height = 40,
+                Height = 42,
                 ForeColor = Theme.TextMuted,
                 Font = Theme.SmallFont,
                 AutoEllipsis = false,
-                TextAlign = ContentAlignment.MiddleLeft,
+                TextAlign = ContentAlignment.TopLeft,
                 Margin = new Padding(0),
             };
             _targetTip.SetToolTip(_targetLabel, _settings.TargetSummary());
@@ -567,13 +549,34 @@ namespace LcscStudio
         {
             if (_headerTable == null || _list.Columns.Count < 5) return;
             var width = _list.ClientSize.Width - 2;
-            if (width < 240) width = 240;
-            var id = Math.Max(76, (int)(width * 0.20));
-            var name = Math.Max(64, (int)(width * 0.28));
-            var package = Math.Max(60, (int)(width * 0.22));
-            var stock = Math.Max(44, (int)(width * 0.14));
-            var price = Math.Max(44, width - id - name - package - stock);
-            var widths = new[] { id, name, package, stock, price };
+            if (width < 150) width = 150;
+            var minimum = new[] { 70, 60, 56, 42, 42 };
+            var ratio = new[] { 0.20, 0.28, 0.22, 0.14, 0.16 };
+            const int minSum = 270;
+            int[] widths;
+            if (width <= minSum)
+            {
+                widths = new int[5];
+                var used = 0;
+                for (var i = 0; i < 5; i++)
+                {
+                    widths[i] = Math.Max(20, (int)(minimum[i] * width / (double)minSum));
+                    used += widths[i];
+                }
+                widths[4] += width - used;
+            }
+            else
+            {
+                var extra = width - minSum;
+                widths = new int[5];
+                var used = 0;
+                for (var i = 0; i < 5; i++)
+                {
+                    widths[i] = minimum[i] + (int)Math.Floor(extra * ratio[i]);
+                    used += widths[i];
+                }
+                widths[4] += width - used;
+            }
             for (var i = 0; i < widths.Length; i++)
             {
                 _list.Columns[i].Width = widths[i];
@@ -658,6 +661,7 @@ namespace LcscStudio
                     _list.Items.Add(row);
                 }
                 _list.EndUpdate();
+                LayoutColumns();
 
                 PluginLog.Write("panel search '" + keyword + "' total=" + page.Total +
                     " items=" + page.Items.Count);
