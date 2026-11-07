@@ -42,6 +42,8 @@ namespace LcscLoader
     public class LcscModule : ServerModule
     {
         private bool _registered;
+        private bool _panelRegistrationTried;
+        private IServerView _panelView;
 
         public LcscModule(IClient client) : base(client, "LCSCLoader")
         {
@@ -52,7 +54,7 @@ namespace LcscLoader
             {
                 timer.Stop();
                 timer.Dispose();
-                try { LcscWindow.Show(); }
+                try { ShowPanel(); }
                 catch (Exception ex) { PluginLog.Write("auto show failed: " + ex); }
             };
             timer.Start();
@@ -67,6 +69,7 @@ namespace LcscLoader
         {
             PluginLog.Write("InitializeCommands");
             RegisterCommands();
+            EnsurePanelView();
         }
 
         protected override void ApplicationIdleImpl()
@@ -93,13 +96,62 @@ namespace LcscLoader
             PluginLog.Write("ShowLoader invoked");
             try
             {
-                LcscWindow.Show();
+                ShowPanel();
             }
             catch (Exception ex)
             {
                 PluginLog.Write("ShowLoader failed: " + ex);
                 MessageBox.Show(ex.Message, "LCSC Loader", MessageBoxButtons.OK, MessageBoxIcon.Hand);
             }
+        }
+
+        private void EnsurePanelView()
+        {
+            if (_panelView != null || _panelRegistrationTried) return;
+            _panelRegistrationTried = true;
+            try
+            {
+                var form = new LcscPanelForm();
+                var view = new LcscPanelView(form, LcscPanelForm.PanelName, LcscPanelForm.PanelCaption);
+                AddView(view);
+                var client = PluginContext.Client;
+                if (client != null) client.AddServerView(view);
+                _panelView = view;
+                PluginLog.Write("panel view registered");
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Write("panel view registration failed: " + ex);
+            }
+        }
+
+        // Prefer the native docked panel; fall back to the floating window if the
+        // SDK refuses the registration or the GUI manager cannot show it.
+        private void ShowPanel()
+        {
+            try
+            {
+                EnsurePanelView();
+                if (_panelView != null)
+                {
+                    var gui = PluginContext.Client != null ? PluginContext.Client.GetGUIManager() : null;
+                    if (gui != null)
+                    {
+                        gui.SetPanelVisibleInCurrentForm(LcscPanelForm.PanelName, true);
+                        gui.SetPanelActiveInCurrentForm(LcscPanelForm.PanelName);
+                        PluginLog.Write("panel shown via GUIManager");
+                        return;
+                    }
+                    _panelView.Show();
+                    PluginLog.Write("panel shown via IServerView.Show");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Write("docked panel show failed: " + ex);
+            }
+            LcscWindow.Show();
         }
 
         private void GetLoaderState(
