@@ -31,6 +31,7 @@ namespace LcscLoader
             if (string.IsNullOrEmpty(baseName)) baseName = part.LcscId + "_FP";
 
             var existing = pcbLib.GetComponentByName(baseName);
+            IPCB_LibComponent component = null;
             if (existing != null)
             {
                 if (!overwrite)
@@ -43,16 +44,34 @@ namespace LcscLoader
                     return result;
                 }
 
-                object doomed = existing;
-                pcbLib.RemoveComponent(ref doomed);
+                // 覆盖时优先就地复用：清空旧图元后重填，名字保持不变。
+                // 之前「删除 + 新建 + GetUniqueCompName」在删除失败时会留下旧组件，
+                // 又生成带后缀的新名字，越导越多。
+                pcbLib.SetState_CurrentComponent(existing);
+                if (TryClearComponent(existing))
+                {
+                    component = existing;
+                    Diag.Log("封装覆盖：复用已有组件 " + baseName + "（已清空图元）");
+                }
+                else
+                {
+                    object doomed = existing;
+                    pcbLib.RemoveComponent(ref doomed);
+                    Diag.Log("封装覆盖：清空失败，退回删除重建 " + baseName);
+                }
             }
 
-            var component = pcbLib.CreateNewComponent();
             if (component == null)
-                throw new InvalidOperationException("无法创建 PCB 封装");
+            {
+                component = pcbLib.CreateNewComponent();
+                if (component == null)
+                    throw new InvalidOperationException("无法创建 PCB 封装");
+                pcbLib.SetState_CurrentComponent(component);
+                Diag.Log("封装：新建组件 " + baseName);
+            }
 
-            pcbLib.SetState_CurrentComponent(component);
-            var pattern = pcbLib.GetUniqueCompName(baseName);
+            // 不再调用 GetUniqueCompName：名字必须与 EasyEDA 包名一致，否则会累积重复组件。
+            var pattern = baseName;
             component.SetState_Pattern(pattern);
             component.SetState_Description(part.Description);
             // 新建组件会继承上一个组件的落点（实测为 1270 mm），不归零会让整个封装
@@ -238,6 +257,21 @@ namespace LcscLoader
                 sum += a.X * b.Y - b.X * a.Y;
             }
             return Math.Abs(sum) / 2.0;
+        }
+
+        // 就地覆盖：清空组件内图元。FreePrimitives 不可用时不强求，交给上层退回删除重建。
+        private static bool TryClearComponent(IPCB_LibComponent component)
+        {
+            try
+            {
+                component.FreePrimitives();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Diag.Log("FreePrimitives 失败：" + ex.Message);
+                return false;
+            }
         }
 
         // 读回组件自身的图元数量，确认图元是否真的挂进封装（而非只挂到板上）。

@@ -18,6 +18,8 @@ namespace LcscLoader
         {
             var libReference = string.IsNullOrWhiteSpace(part.Symbol.Name) ? part.LcscId : part.Symbol.Name;
             var existing = schLib.GetState_SchComponentByLibRef(libReference);
+            ISch_Component component = null;
+            var created = false;
             if (existing != null)
             {
                 if (!overwrite)
@@ -25,19 +27,40 @@ namespace LcscLoader
                     ImportLog.Add("原理图符号已存在，跳过：" + libReference);
                     return existing;
                 }
-                schLib.RemoveSchComponent(existing);
+
+                // 就地覆盖：清空子对象后复用原组件，名称保持不变，避免累积重复符号。
+                component = existing;
+                try
+                {
+                    ((ISch_BasicContainer)component).DeleteAll();
+                    Diag.Log("符号覆盖：复用已有组件 " + libReference + "（已清空子对象）");
+                }
+                catch (Exception ex)
+                {
+                    Diag.Log("符号清空失败，改为删除重建：" + ex.Message);
+                    schLib.RemoveSchComponent(existing);
+                    component = null;
+                }
             }
 
-            var component = AdApi.SchServer.SchObjectFactory(
-                TObjectId.eSchComponent, TObjectCreationMode.eCreate_Default) as ISch_Component;
+            if (component == null)
+            {
+                component = AdApi.SchServer.SchObjectFactory(
+                    TObjectId.eSchComponent, TObjectCreationMode.eCreate_Default) as ISch_Component;
+                created = true;
+                Diag.Log("符号：新建组件 " + libReference);
+            }
             if (component == null) throw new InvalidOperationException("无法创建原理图元件");
 
             component.SetState_CurrentPartID(1);
             component.SetState_DisplayMode(0);
             component.SetState_LibReference(libReference);
             var designator = component.GetState_SchDesignator();
-            designator.SetState_Text(
-                string.IsNullOrWhiteSpace(part.Symbol.Prefix) ? "U?" : part.Symbol.Prefix);
+            if (designator != null)
+            {
+                designator.SetState_Text(
+                    string.IsNullOrWhiteSpace(part.Symbol.Prefix) ? "U?" : part.Symbol.Prefix);
+            }
             var smallFont = AdApi.SchServer.GetState_FontManager()
                 .GetFontID(6, 0, false, false, false, false, "Tahoma");
             var designatorLabel = designator as ISch_Label;
@@ -78,7 +101,7 @@ namespace LcscLoader
             if (!string.IsNullOrWhiteSpace(footprintName))
                 AssignFootprint(component, pcbLibPath, footprintName);
 
-            schLib.AddSchComponent(component);
+            if (created) schLib.AddSchComponent(component);
             schLib.SetState_Current_SchComponent(component);
             schLib.GraphicallyInvalidate();
 
