@@ -70,7 +70,7 @@ namespace LcscStudio
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 44f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 56f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 62f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 66f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92f));
             Controls.Add(_root);
@@ -324,18 +324,6 @@ namespace LcscStudio
             root.Controls.Add(preview, 0, 3);
 
             var footer = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 0), BackColor = Theme.Back };
-            _targetLabel = new Label
-            {
-                Text = TargetShortText(),
-                Dock = DockStyle.Top,
-                Height = 20,
-                ForeColor = Theme.TextMuted,
-                Font = Theme.SmallFont,
-                AutoEllipsis = true,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(0),
-            };
-            _targetTip.SetToolTip(_targetLabel, _settings.TargetSummary());
             var buttonRow = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
@@ -359,8 +347,49 @@ namespace LcscStudio
             _placeButton.Click += OnPlace;
             buttonRow.Controls.Add(_importButton);
             buttonRow.Controls.Add(_placeButton);
+
+            // 下载位置单独成行：说明文字弱化、路径用正文色，长路径从中间省略以保留最末一级目录。
+            var targetRow = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 30,
+                BackColor = Theme.Back,
+                Margin = new Padding(0),
+            };
+            var targetCaption = new Label
+            {
+                Text = "下载位置",
+                Dock = DockStyle.Left,
+                Width = 88,
+                ForeColor = Theme.TextMuted,
+                Font = Theme.SmallFont,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0),
+                BackColor = Theme.Back,
+            };
+            _targetLabel = new Label
+            {
+                Text = "",
+                ForeColor = Theme.Text,
+                Font = Theme.SmallFont,
+                AutoEllipsis = false,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0),
+                BackColor = Theme.Back,
+            };
+            _targetTip.SetToolTip(_targetLabel, _settings.TargetSummary());
+            _targetLabel.SizeChanged += (s2, e2) => FitTargetText();
+            // 这里的 Dock=Fill 在宿主内不会把宽度铺满，改为跟随容器尺寸显式设置。
+            targetRow.Controls.Add(_targetLabel);
+            targetRow.Controls.Add(targetCaption);
+            targetRow.Resize += (s2, e2) =>
+            {
+                _targetLabel.SetBounds(88, 0, Math.Max(0, targetRow.Width - 88), targetRow.Height);
+                FitTargetText();
+            };
+
             footer.Controls.Add(buttonRow);
-            footer.Controls.Add(_targetLabel);
+            footer.Controls.Add(targetRow);
             root.Controls.Add(footer, 0, 4);
             Theme.AddTopBorder(footer);
 
@@ -432,6 +461,7 @@ namespace LcscStudio
             UpdatePagerButtons();
             SelectPreviewTab(0);
             LayoutColumns();
+            FitTargetText();
             HandleCreated += (s, e) => PluginLog.Write("panel dpi=" + DeviceDpi);
         }
 
@@ -770,11 +800,11 @@ namespace LcscStudio
 
         private void UpdateTarget()
         {
-            _targetLabel.Text = TargetShortText();
+            FitTargetText();
             _targetTip.SetToolTip(_targetLabel, _settings.TargetSummary());
         }
 
-        private string TargetShortText()
+        private string TargetFolder()
         {
             var folder = _settings.NewLibraryFolder;
             try
@@ -790,7 +820,56 @@ namespace LcscStudio
             {
                 // Fall back to the configured library folder.
             }
-            return "下载位置：" + folder;
+            return folder;
+        }
+
+        // 面板很窄，完整路径放不下时从中间省略，保证最末一级目录始终可见。
+        private void FitTargetText()
+        {
+            var folder = TargetFolder();
+            var available = _targetLabel.ClientSize.Width - 2;
+            _targetLabel.Text = available > 24
+                ? CompactMiddle(folder, Theme.SmallFont, available)
+                : folder;
+        }
+
+        private static string CompactMiddle(string text, Font font, int maxWidth)
+        {
+            if (TextRenderer.MeasureText(text, font).Width <= maxWidth)
+            {
+                return text;
+            }
+            var parts = text.Split('\\');
+            if (parts.Length < 2)
+            {
+                return text;
+            }
+            var head = parts[0];
+            for (var keep = parts.Length - 1; keep >= 1; keep--)
+            {
+                var candidate = head + "\\…\\" + JoinTail(parts, keep);
+                if (TextRenderer.MeasureText(candidate, font).Width <= maxWidth)
+                {
+                    return candidate;
+                }
+            }
+            var tail = parts[parts.Length - 1];
+            while (tail.Length > 1 && TextRenderer.MeasureText("…" + tail, font).Width > maxWidth)
+            {
+                tail = tail.Substring(1);
+            }
+            return "…" + tail;
+        }
+
+        private static string JoinTail(string[] parts, int keep)
+        {
+            var builder = new System.Text.StringBuilder();
+            for (var i = parts.Length - keep; i < parts.Length; i++)
+            {
+                if (builder.Length > 0) builder.Append('\\');
+                builder.Append(parts[i]);
+            }
+            return builder.ToString();
         }
 
         internal static void CopyTarget(AppSettings from, AppSettings to)
