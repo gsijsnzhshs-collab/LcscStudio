@@ -18,8 +18,6 @@ namespace LcscLoader
         {
             var libReference = string.IsNullOrWhiteSpace(part.Symbol.Name) ? part.LcscId : part.Symbol.Name;
             var existing = schLib.GetState_SchComponentByLibRef(libReference);
-            ISch_Component component = null;
-            var created = false;
             if (existing != null)
             {
                 if (!overwrite)
@@ -27,41 +25,19 @@ namespace LcscLoader
                     ImportLog.Add("原理图符号已存在，跳过：" + libReference);
                     return existing;
                 }
-
-                // 就地覆盖：清空子对象后复用原组件，名称保持不变，避免累积重复符号。
-                component = existing;
-                RemoveDuplicateSymbols(schLib, libReference, existing);
-                try
-                {
-                    ((ISch_BasicContainer)component).DeleteAll();
-                    Diag.Log("符号覆盖：复用已有组件 " + libReference + "（已清空子对象）");
-                }
-                catch (Exception ex)
-                {
-                    Diag.Log("符号清空失败，改为删除重建：" + ex.Message);
-                    schLib.RemoveSchComponent(existing);
-                    component = null;
-                }
+                schLib.RemoveSchComponent(existing);
             }
 
-            if (component == null)
-            {
-                component = AdApi.SchServer.SchObjectFactory(
-                    TObjectId.eSchComponent, TObjectCreationMode.eCreate_Default) as ISch_Component;
-                created = true;
-                Diag.Log("符号：新建组件 " + libReference);
-            }
+            var component = AdApi.SchServer.SchObjectFactory(
+                TObjectId.eSchComponent, TObjectCreationMode.eCreate_Default) as ISch_Component;
             if (component == null) throw new InvalidOperationException("无法创建原理图元件");
 
             component.SetState_CurrentPartID(1);
             component.SetState_DisplayMode(0);
             component.SetState_LibReference(libReference);
             var designator = component.GetState_SchDesignator();
-            if (designator != null)
-            {
-                designator.SetState_Text(
-                    string.IsNullOrWhiteSpace(part.Symbol.Prefix) ? "U?" : part.Symbol.Prefix);
-            }
+            designator.SetState_Text(
+                string.IsNullOrWhiteSpace(part.Symbol.Prefix) ? "U?" : part.Symbol.Prefix);
             var smallFont = AdApi.SchServer.GetState_FontManager()
                 .GetFontID(6, 0, false, false, false, false, "Tahoma");
             var designatorLabel = designator as ISch_Label;
@@ -102,7 +78,7 @@ namespace LcscLoader
             if (!string.IsNullOrWhiteSpace(footprintName))
                 AssignFootprint(component, pcbLibPath, footprintName);
 
-            if (created) schLib.AddSchComponent(component);
+            schLib.AddSchComponent(component);
             schLib.SetState_Current_SchComponent(component);
             schLib.GraphicallyInvalidate();
 
@@ -341,41 +317,6 @@ namespace LcscLoader
             container.SetState_IsSolid(closed && Conv.HasPaint(fill));
             container.SetState_AreaColor(Conv.Color(fill, Conv.DefaultFill));
             container.SetState_Transparent(false);
-        }
-
-        // 清理历史遗留：同名符号只保留准备复用的那一个，其余删除。
-        private static void RemoveDuplicateSymbols(
-            ISch_Lib schLib, string libReference, ISch_Component keep)
-        {
-            try
-            {
-                object iteratorObject = schLib.Internal_SchLibIterator_Create();
-                var iterator = iteratorObject as ISch_Iterator;
-                if (iterator == null) return;
-
-                var doomed = new List<ISch_Component>();
-                object current = iterator.Internal_FirstSchObject();
-                while (current != null)
-                {
-                    var comp = current as ISch_Component;
-                    if (comp != null && comp != keep &&
-                        string.Equals(comp.GetState_LibReference(), libReference, StringComparison.Ordinal))
-                    {
-                        doomed.Add(comp);
-                    }
-                    current = iterator.Internal_NextSchObject();
-                }
-
-                foreach (var comp in doomed)
-                {
-                    schLib.RemoveSchComponent(comp);
-                }
-                if (doomed.Count > 0) Diag.Log("清理重复符号 " + doomed.Count + " 个：" + libReference);
-            }
-            catch (Exception ex)
-            {
-                Diag.Log("清理重复符号失败：" + ex.Message);
-            }
         }
 
         // 诊断用：确认图元是否真的挂进了元件（17=多边形、18=折线、37=引脚）。
