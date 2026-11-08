@@ -22,12 +22,33 @@ namespace LcscStudio
         private readonly Label _partMeta;
         private readonly SymbolCanvas _symbolCanvas = new SymbolCanvas();
         private readonly FootprintCanvas _footprintCanvas = new FootprintCanvas();
+        private readonly ScrollStrip _listScroll = new ScrollStrip();
+        private readonly ScrollStrip _logScroll = new ScrollStrip();
+        private readonly System.Windows.Forms.Timer _scrollSync = new System.Windows.Forms.Timer { Interval = 120 };
+        private const int LvmGetTopIndex = 0x1027;
+        private const int LvmGetCountPerPage = 0x1028;
+        private const int EmGetFirstVisibleLine = 0x00CE;
+        private const int EmLineScroll = 0x00B6;
+        private int _hotIndex = -1;
+        private readonly Label[] _headerLabels = new Label[5];
+        private readonly FlowLayoutPanel _viewBar = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Theme.Canvas,
+            Margin = new Padding(0),
+        };
+        private Button _zoomOutButton;
+        private Button _zoomInButton;
+        private Button _resetViewButton;
         private readonly Label _modelHint = new Label
         {
-            Text = "3D 预览暂不可用（导入后可在 AD 中查看模型）",
+            Text = "3D 预览暂不可用\n导入后可在 AD 中查看模型",
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
-            ForeColor = Color.Gray,
+            ForeColor = Theme.TextMuted,
         };
         private readonly Label _targetLabel;
         private readonly Button _importButton;
@@ -63,17 +84,17 @@ namespace LcscStudio
             _root = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(10, 8, 10, 8),
+                Padding = new Padding(10, 10, 10, 10),
                 ColumnCount = 1,
                 RowCount = 7,
                 BackColor = Theme.Back,
             };
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 44f));
             _root.RowStyles.Add(new RowStyle(SizeType.Percent, 56f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 66f));
-            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92f));
+            _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 32f));
             _root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92f));
             Controls.Add(_root);
             var root = _root;
@@ -109,7 +130,6 @@ namespace LcscStudio
             header.Controls.Add(settingsButton);
             header.Controls.Add(targetButton);
             root.Controls.Add(header, 0, 0);
-            Theme.AddBottomBorder(header, Theme.SurfaceAlt);
 
             var searchRow = new TableLayoutPanel
             {
@@ -167,11 +187,10 @@ namespace LcscStudio
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
                 RowCount = 2,
-                Margin = new Padding(0, 2, 0, 0),
-                Padding = new Padding(0),
-                BackColor = Theme.Back,
+                Margin = new Padding(0, 6, 0, 8),
             };
-            listPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
+            Theme.StyleCard(listPanel, new Padding(6));
+            listPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             listPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             var infoRow = new TableLayoutPanel
             {
@@ -179,7 +198,7 @@ namespace LcscStudio
                 ColumnCount = 3,
                 Margin = new Padding(0),
                 AutoSize = false,
-                BackColor = Theme.Back,
+                BackColor = Theme.Surface,
             };
             infoRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             infoRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -190,7 +209,7 @@ namespace LcscStudio
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 ForeColor = Theme.TextMuted,
-                Font = Theme.SmallFont,
+                Font = Theme.LabelFont,
                 Margin = new Padding(0),
                 AutoEllipsis = true,
             };
@@ -224,7 +243,7 @@ namespace LcscStudio
             _list.Columns.Add("单价", 52);
             _list.SmallImageList = new ImageList
             {
-                ImageSize = new Size(1, 22),
+                ImageSize = new Size(1, 26),
                 ColorDepth = ColorDepth.Depth32Bit,
             };
             _list.OwnerDraw = true;
@@ -245,16 +264,35 @@ namespace LcscStudio
             };
             _list.SizeChanged += (s, e) => LayoutColumns();
             _list.VisibleChanged += (s, e) => LayoutColumns();
+            _list.MouseMove += (s, e) =>
+            {
+                var hit = _list.GetItemAt(e.X, e.Y);
+                var index = hit == null ? -1 : hit.Index;
+                if (index == _hotIndex) return;
+                var previous = _hotIndex;
+                _hotIndex = index;
+                InvalidateRow(previous);
+                InvalidateRow(index);
+            };
+            _list.MouseLeave += (s, e) =>
+            {
+                if (_hotIndex < 0) return;
+                var previous = _hotIndex;
+                _hotIndex = -1;
+                InvalidateRow(previous);
+            };
             var columnHeader = BuildColumnHeader();
-            Theme.AddBottomBorder(columnHeader, Color.FromArgb(0x2A, 0x2A, 0x2A));
+            Theme.AddBottomBorder(columnHeader, Theme.Border);
             columnHeader.Paint += (s, e) =>
             {
                 float x = 0;
-                using (var pen = new Pen(Color.FromArgb(0x33, 0x33, 0x33)))
+                using (var pen = new Pen(Theme.Divider))
                 {
                     for (var i = 0; i < 4 && i < _headerTable.ColumnStyles.Count - 1; i++)
                     {
-                        x += _headerTable.ColumnStyles[i].Width;
+                        var width = _headerTable.ColumnStyles[i].Width;
+                        if (width <= 0) continue;
+                        x += width;
                         e.Graphics.DrawLine(pen, x - 1, 3, x - 1, columnHeader.Height - 3);
                     }
                 }
@@ -268,23 +306,43 @@ namespace LcscStudio
                 RowCount = 2,
                 Margin = new Padding(0),
                 Padding = new Padding(0),
-                BackColor = Theme.Back,
+                BackColor = Theme.Surface,
             };
-            listTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 24f));
+            listTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 26f));
             listTable.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             columnHeader.Dock = DockStyle.Fill;
             listTable.Controls.Add(columnHeader, 0, 0);
-            listTable.Controls.Add(_list, 0, 1);
+
+            // 系统滚动条在 AD 宿主里只把轨道染暗、拇指仍是浅灰；隐藏它，
+            // 换成右侧自绘的深色圆角细条。
+            var listHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0),
+                BackColor = Theme.InputBack,
+            };
+            _list.Dock = DockStyle.Fill;
+            // 覆盖在系统滚动条上：不参与停靠布局，避免搜索时列表宽度抖动。
+            _listScroll.Dock = DockStyle.None;
+            _listScroll.Width = Math.Max(16, SystemInformation.VerticalScrollBarWidth);
+            _listScroll.Margin = new Padding(0);
+            listHost.Controls.Add(_list);
+            listHost.Controls.Add(_listScroll);
+            _listScroll.BringToFront();
+            listHost.Resize += (s, e) => PlaceListScroll();
+            listHost.HandleCreated += (s, e) => PlaceListScroll();
+            listTable.Controls.Add(listHost, 0, 1);
             listPanel.Controls.Add(listTable, 0, 1);
             root.Controls.Add(listPanel, 0, 2);
 
-            var preview = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 0), BackColor = Theme.Back };
+            var preview = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 8) };
+            Theme.StyleCard(preview, new Padding(8));
             _partTitle = new Label
             {
                 Text = "未选择器件",
                 Dock = DockStyle.Top,
-                Height = 24,
-                Font = new Font("Microsoft YaHei UI", 9.5f, FontStyle.Bold),
+                Height = 26,
+                Font = Theme.TitleFont,
                 ForeColor = Theme.Text,
                 Margin = new Padding(0),
             };
@@ -294,7 +352,7 @@ namespace LcscStudio
                 Dock = DockStyle.Top,
                 Height = 22,
                 ForeColor = Theme.TextMuted,
-                Font = Theme.SmallFont,
+                Font = Theme.LabelFont,
                 AutoEllipsis = true,
             };
 
@@ -303,10 +361,16 @@ namespace LcscStudio
                 Dock = DockStyle.Top,
                 Height = 36,
                 WrapContents = false,
-                BackColor = Theme.Back,
+                BackColor = Theme.Surface,
                 Margin = new Padding(0),
             };
-            var previewHost = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Canvas };
+            // 画布降为 L2 并留 1px 内框，和区块卡形成内嵌关系。
+            var previewHost = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.Border,
+                Padding = new Padding(1),
+            };
 
             _modelHint.Dock = DockStyle.Fill;
             _modelHint.TextAlign = ContentAlignment.MiddleCenter;
@@ -317,6 +381,31 @@ namespace LcscStudio
             previewHost.Controls.Add(_modelHint);
             previewHost.Controls.Add(_footprintCanvas);
             previewHost.Controls.Add(_symbolCanvas);
+
+            // 预览右下角的缩放条：方形加减按钮，重置按钮画成向外扩张的箭头；
+            // 平移直接按住左键拖动。
+            _zoomOutButton = Theme.StyleButton(new Button { Text = "－", Margin = new Padding(0, 0, 4, 0) });
+            _zoomOutButton.Font = Theme.SmallFont;
+            _zoomOutButton.AutoSize = false;
+            _zoomOutButton.Size = new Size(26, 26);
+            _zoomInButton = Theme.StyleButton(new Button { Text = "＋", Margin = new Padding(0, 0, 4, 0) });
+            _zoomInButton.Font = Theme.SmallFont;
+            _zoomInButton.AutoSize = false;
+            _zoomInButton.Size = new Size(26, 26);
+            _resetViewButton = Theme.StyleButton(new Button { Text = "", Margin = new Padding(0) });
+            _resetViewButton.Font = Theme.SmallFont;
+            _resetViewButton.AutoSize = false;
+            _resetViewButton.Size = new Size(26, 26);
+            _resetViewButton.Paint += (s, e) => DrawExpandIcon(e.Graphics, _resetViewButton.ClientRectangle);
+            _zoomOutButton.Click += (s, e) => ZoomActive(-1);
+            _zoomInButton.Click += (s, e) => ZoomActive(1);
+            _resetViewButton.Click += (s, e) => ResetActiveView();
+            _viewBar.Controls.Add(_zoomOutButton);
+            _viewBar.Controls.Add(_zoomInButton);
+            _viewBar.Controls.Add(_resetViewButton);
+            previewHost.Controls.Add(_viewBar);
+            _viewBar.BringToFront();
+            previewHost.Resize += (s, e) => PlaceViewBar(previewHost);
 
             var tabNames = new[] { "符号", "封装", "3D" };
             for (var i = 0; i < tabNames.Length; i++)
@@ -334,9 +423,16 @@ namespace LcscStudio
                 button.FlatAppearance.BorderSize = 1;
                 Theme.SizeToText(button, 28, 52);
                 Theme.EnableOwnTextPaint(button);
+                // 活动页签的底部 2px 强调条，替代原来的整块实心蓝。
+                button.Paint += (s, e) =>
+                {
+                    if (index != _previewTab) return;
+                    using (var pen = new Pen(Theme.Accent, 2))
+                        e.Graphics.DrawLine(pen, 2, button.Height - 2, button.Width - 3, button.Height - 2);
+                };
                 button.MouseEnter += (s, e) =>
                 {
-                    if (index != _previewTab) button.BackColor = Color.FromArgb(0x46, 0x49, 0x4D);
+                    if (index != _previewTab) button.BackColor = Theme.SurfaceHover;
                 };
                 button.MouseLeave += (s, e) => Theme.SetTabActive(button, index == _previewTab);
                 button.Click += (s, e) => SelectPreviewTab(index);
@@ -350,14 +446,15 @@ namespace LcscStudio
             preview.Controls.Add(_partTitle);
             root.Controls.Add(preview, 0, 3);
 
-            var footer = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 0), BackColor = Theme.Back };
+            var footer = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 8) };
+            Theme.StyleCard(footer, new Padding(8));
             var buttonRow = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
                 Height = 34,
                 FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false,
-                BackColor = Theme.Back,
+                BackColor = Theme.Surface,
                 Margin = new Padding(0),
             };
             _importButton = Theme.StyleButton(new Button
@@ -380,7 +477,7 @@ namespace LcscStudio
             {
                 Dock = DockStyle.Top,
                 Height = 30,
-                BackColor = Theme.Back,
+                BackColor = Theme.Surface,
                 Margin = new Padding(0),
             };
             var targetCaption = new Label
@@ -389,10 +486,10 @@ namespace LcscStudio
                 Dock = DockStyle.Left,
                 Width = 88,
                 ForeColor = Theme.TextMuted,
-                Font = Theme.SmallFont,
+                Font = Theme.LabelFont,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
-                BackColor = Theme.Back,
+                BackColor = Theme.Surface,
             };
             _targetLabel = new Label
             {
@@ -402,7 +499,7 @@ namespace LcscStudio
                 AutoEllipsis = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Margin = new Padding(0),
-                BackColor = Theme.Back,
+                BackColor = Theme.Surface,
             };
             _targetTip.SetToolTip(_targetLabel, _settings.TargetSummary());
             _targetLabel.SizeChanged += (s2, e2) => FitTargetText();
@@ -418,7 +515,6 @@ namespace LcscStudio
             footer.Controls.Add(buttonRow);
             footer.Controls.Add(targetRow);
             root.Controls.Add(footer, 0, 4);
-            Theme.AddTopBorder(footer);
 
             _log = new TextBox
             {
@@ -428,7 +524,6 @@ namespace LcscStudio
                 ScrollBars = ScrollBars.Vertical,
             };
             Theme.StyleTextBox(_log, true);
-            Theme.EnableDarkScrollbars(_log);
             _logBody = new Panel
             {
                 Dock = DockStyle.Fill,
@@ -443,15 +538,21 @@ namespace LcscStudio
                 Visible = false,
                 Style = ProgressBarStyle.Continuous,
             };
+            _logScroll.Dock = DockStyle.None;
+            _logScroll.Width = Math.Max(16, SystemInformation.VerticalScrollBarWidth);
+            _logScroll.Margin = new Padding(0);
             _logBody.Controls.Add(_log);
+            _logBody.Controls.Add(_logScroll);
             _logBody.Controls.Add(_progress);
+            _log.Resize += (s, e) => PlaceLogScroll();
+            _logBody.Resize += (s, e) => PlaceLogScroll();
 
             var logHeader = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                Margin = new Padding(0, 2, 0, 0),
-                BackColor = Theme.Back,
+                Margin = new Padding(0),
+                BackColor = Theme.Surface,
             };
             logHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             logHeader.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -461,7 +562,7 @@ namespace LcscStudio
                 Dock = DockStyle.Fill,
                 TextAlign = ContentAlignment.MiddleLeft,
                 ForeColor = Theme.TextMuted,
-                Font = Theme.SmallFont,
+                Font = Theme.LabelFont,
                 Margin = new Padding(0),
             };
             _logToggle = new Button
@@ -472,7 +573,7 @@ namespace LcscStudio
                 FlatStyle = FlatStyle.Flat,
                 UseVisualStyleBackColor = false,
                 Cursor = Cursors.Hand,
-                BackColor = Theme.Back,
+                BackColor = Theme.Surface,
                 ForeColor = Theme.Text,
             };
             _logToggle.FlatAppearance.BorderSize = 0;
@@ -483,12 +584,22 @@ namespace LcscStudio
             logHeader.Controls.Add(_logToggle, 1, 0);
             root.Controls.Add(logHeader, 0, 5);
             root.Controls.Add(_logBody, 0, 6);
-            Theme.AddTopBorder(logHeader);
+            Theme.AddTopBorder(logHeader, Theme.Edge);
 
             UpdatePagerButtons();
             SelectPreviewTab(0);
+            PlaceViewBar(previewHost);
             LayoutColumns();
             FitTargetText();
+            _listScroll.ValueChanged += (s, e) => ScrollListTo(_listScroll.Value);
+            _logScroll.ValueChanged += (s, e) => ScrollLogTo(_logScroll.Value);
+            _scrollSync.Tick += (s, e) => SyncScrollBars();
+            _scrollSync.Start();
+            Disposed += (s, e) =>
+            {
+                _scrollSync.Stop();
+                _scrollSync.Dispose();
+            };
             HandleCreated += (s, e) => PluginLog.Write("panel dpi=" + DeviceDpi);
         }
 
@@ -498,10 +609,68 @@ namespace LcscStudio
             _symbolCanvas.Visible = index == 0;
             _footprintCanvas.Visible = index == 1;
             _modelHint.Visible = index == 2;
+            _viewBar.Visible = index < 2;
             for (var i = 0; i < _tabButtons.Length; i++)
             {
-                if (_tabButtons[i] != null) Theme.SetTabActive(_tabButtons[i], i == index);
+                if (_tabButtons[i] == null) continue;
+                Theme.SetTabActive(_tabButtons[i], i == index);
+                _tabButtons[i].Invalidate();
             }
+        }
+
+        private ZoomCanvas ActiveZoomCanvas()
+        {
+            if (_previewTab == 0) return _symbolCanvas;
+            if (_previewTab == 1) return _footprintCanvas;
+            return null;
+        }
+
+        private void ZoomActive(int direction)
+        {
+            var canvas = ActiveZoomCanvas();
+            if (canvas == null) return;
+            if (direction > 0) canvas.ZoomIn(); else canvas.ZoomOut();
+        }
+
+        private void ResetActiveView()
+        {
+            var canvas = ActiveZoomCanvas();
+            if (canvas != null) canvas.ResetView();
+        }
+
+        // 重置按钮图标：四个角向外的斜箭头，和常见“适应窗口”图标一致。
+        private static void DrawExpandIcon(Graphics g, Rectangle bounds)
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            var cx = bounds.Left + bounds.Width / 2f;
+            var cy = bounds.Top + bounds.Height / 2f;
+            const float reach = 7.5f;
+            using (var pen = new Pen(Theme.Text, 1.4f))
+            {
+                pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                for (var sx = -1; sx <= 1; sx += 2)
+                {
+                    for (var sy = -1; sy <= 1; sy += 2)
+                    {
+                        float x = cx + sx * reach;
+                        float y = cy + sy * reach;
+                        g.DrawLine(pen, cx, cy, x, y);
+                        g.DrawLine(pen, x, y, x - sx * 3.6f, y);
+                        g.DrawLine(pen, x, y, x, y - sy * 3.6f);
+                    }
+                }
+            }
+        }
+
+        private void PlaceViewBar(Panel host)
+        {
+            if (host == null) return;
+            var barHeight = Math.Max(_viewBar.Height, 28);
+            _viewBar.Location = new Point(
+                Math.Max(6, host.ClientSize.Width - _viewBar.Width - 8),
+                Math.Max(6, host.ClientSize.Height - barHeight - 8));
+            _viewBar.BringToFront();
         }
 
         private void ToggleLog()
@@ -569,7 +738,7 @@ namespace LcscStudio
             var table = new TableLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 24,
+                Height = 26,
                 ColumnCount = 5,
                 BackColor = Theme.Surface,
                 Margin = new Padding(0),
@@ -579,68 +748,148 @@ namespace LcscStudio
             for (var i = 0; i < widths.Length; i++)
             {
                 table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, widths[i]));
-                table.Controls.Add(new Label
+                var label = new Label
                 {
                     Text = names[i],
                     Dock = DockStyle.Fill,
-                    TextAlign = ContentAlignment.MiddleLeft,
+                    // 数值列与数据行统一右对齐，便于竖排比较。
+                    TextAlign = i >= 3 ? ContentAlignment.MiddleRight : ContentAlignment.MiddleLeft,
                     ForeColor = Theme.TextMuted,
-                    Font = Theme.SmallFont,
-                    Margin = new Padding(2, 0, 2, 0),
+                    Font = Theme.LabelFont,
+                    // 数值列右侧留白与数据行一致，保证小数点对齐。
+                    Margin = i >= 3 ? new Padding(2, 0, 6, 0) : new Padding(2, 0, 2, 0),
                     AutoEllipsis = true,
-                }, i, 0);
+                };
+                _headerLabels[i] = label;
+                table.Controls.Add(label, i, 0);
             }
             _headerTable = table;
             return table;
         }
 
         private int _lastLayoutWidth = -1;
+        private int _lastVisibleColumns = -1;
 
         private void LayoutColumns()
         {
             if (_headerTable == null || _list.Columns.Count < 5) return;
-            // Reserve room for a vertical scrollbar so the horizontal bar never appears.
-            var width = _list.ClientSize.Width - 20;
-            if (width < 150) width = 150;
-            if (_lastLayoutWidth != width)
+            // 预留竖向滚动条宽度，避免出现横向滚动条。
+            var clientWidth = _list.ClientSize.Width;
+            var width = Math.Max(80, clientWidth - 20);
+
+            // 窄宽度下先隐藏单价，再隐藏库存，避免“¥0…”“4…”这类无意义截断。
+            var visible = width < 260 ? 3 : width < 330 ? 4 : 5;
+            if (_lastLayoutWidth != width || _lastVisibleColumns != visible)
             {
                 _lastLayoutWidth = width;
-                PluginLog.Write("panel layout width=" + width + " listClient=" + _list.ClientSize.Width +
-                    " panel=" + Width + "x" + Height);
+                _lastVisibleColumns = visible;
+                PluginLog.Write("panel layout width=" + width + " visible=" + visible +
+                    " listClient=" + clientWidth + " panel=" + Width + "x" + Height);
             }
+
             var minimum = new[] { 70, 60, 56, 42, 42 };
             var ratio = new[] { 0.20, 0.28, 0.22, 0.14, 0.16 };
-            const int minSum = 270;
-            int[] widths;
+            var widths = new int[5];
+            var minSum = 0;
+            var ratioSum = 0.0;
+            for (var i = 0; i < visible; i++)
+            {
+                minSum += minimum[i];
+                ratioSum += ratio[i];
+            }
+
+            var used = 0;
             if (width <= minSum)
             {
-                widths = new int[5];
-                var used = 0;
-                for (var i = 0; i < 5; i++)
+                for (var i = 0; i < visible; i++)
                 {
                     widths[i] = Math.Max(20, (int)(minimum[i] * width / (double)minSum));
                     used += widths[i];
                 }
-                widths[4] += width - used;
             }
             else
             {
                 var extra = width - minSum;
-                widths = new int[5];
-                var used = 0;
-                for (var i = 0; i < 5; i++)
+                for (var i = 0; i < visible; i++)
                 {
-                    widths[i] = minimum[i] + (int)Math.Floor(extra * ratio[i]);
+                    widths[i] = minimum[i] + (int)Math.Floor(extra * ratio[i] / ratioSum);
                     used += widths[i];
                 }
-                widths[4] += width - used;
             }
-            for (var i = 0; i < widths.Length; i++)
+            widths[visible - 1] += width - used;
+
+            for (var i = 0; i < 5; i++)
             {
-                _list.Columns[i].Width = widths[i];
+                var columnWidth = i < visible ? widths[i] : 0;
+                _list.Columns[i].Width = columnWidth;
                 if (_headerTable.ColumnStyles.Count > i)
-                    _headerTable.ColumnStyles[i].Width = widths[i];
+                    _headerTable.ColumnStyles[i].Width = columnWidth;
+                if (_headerLabels[i] != null) _headerLabels[i].Visible = i < visible;
             }
+        }
+
+        // 悬停只重绘发生变化的两行，整块 Invalidate 会在列表里闪一下。
+        private void InvalidateRow(int index)
+        {
+            if (!_list.IsHandleCreated || index < 0 || index >= _list.Items.Count) return;
+            var bounds = _list.Items[index].Bounds;
+            if (bounds.Width > 0 && bounds.Height > 0) _list.Invalidate(bounds);
+        }
+
+        // 自绘滚动条覆盖在系统滚动条上：系统条保持原样（滚轮/键盘照常可用），
+        // 只是被不透明的细条盖住，避免出现“一方一圆”两条并存。
+        private void PlaceListScroll()
+        {
+            if (_listScroll.Parent == null) return;
+            var host = _listScroll.Parent;
+            _listScroll.SetBounds(Math.Max(0, host.ClientSize.Width - _listScroll.Width), 0,
+                _listScroll.Width, host.ClientSize.Height);
+            _listScroll.BringToFront();
+        }
+
+        private void PlaceLogScroll()
+        {
+            if (_logScroll.Parent == null || _log == null) return;
+            _logScroll.SetBounds(Math.Max(0, _log.Right - _logScroll.Width), _log.Top,
+                _logScroll.Width, _log.Height);
+            _logScroll.BringToFront();
+        }
+
+        private void SyncScrollBars()
+        {
+            if (_list.IsHandleCreated && _list.Visible)
+            {
+                var count = _list.Items.Count;
+                var perPage = (int)SendMessage(_list.Handle, LvmGetCountPerPage, IntPtr.Zero, IntPtr.Zero);
+                var top = (int)SendMessage(_list.Handle, LvmGetTopIndex, IntPtr.Zero, IntPtr.Zero);
+                _listScroll.Configure(0, count, perPage, top);
+            }
+
+            if (_log != null && _log.IsHandleCreated && _log.Visible)
+            {
+                var first = (int)SendMessage(_log.Handle, EmGetFirstVisibleLine, IntPtr.Zero, IntPtr.Zero);
+                var lineHeight = Math.Max(1, TextRenderer.MeasureText("Ag", _log.Font).Height);
+                var view = Math.Max(1, _log.ClientSize.Height / lineHeight);
+                var total = _log.GetLineFromCharIndex(_log.TextLength) + 1;
+                _logScroll.Configure(0, total, view, first);
+            }
+        }
+
+        private void ScrollListTo(int index)
+        {
+            if (!_list.IsHandleCreated) return;
+            var count = _list.Items.Count;
+            if (count == 0) return;
+            index = Math.Min(Math.Max(index, 0), count - 1);
+            try { _list.TopItem = _list.Items[index]; } catch { }
+        }
+
+        private void ScrollLogTo(int line)
+        {
+            if (!_log.IsHandleCreated) return;
+            var first = (int)SendMessage(_log.Handle, EmGetFirstVisibleLine, IntPtr.Zero, IntPtr.Zero);
+            var delta = line - first;
+            if (delta != 0) SendMessage(_log.Handle, EmLineScroll, IntPtr.Zero, new IntPtr(delta));
         }
 
         private static bool _drawLogged;
@@ -650,10 +899,17 @@ namespace LcscStudio
         private void DrawRow(object sender, DrawListViewItemEventArgs e)
         {
             var back = e.Item.Selected
-                ? Theme.Accent
-                : (e.ItemIndex % 2 == 0 ? Theme.InputBack : Color.FromArgb(0x23, 0x24, 0x28));
+                ? Theme.Selection
+                : e.ItemIndex == _hotIndex
+                    ? Theme.ListHover
+                    : (e.ItemIndex % 2 == 0 ? Theme.InputBack : Theme.ListAlt);
             using (var brush = new SolidBrush(back))
                 e.Graphics.FillRectangle(brush, e.Bounds);
+            if (e.Item.Selected)
+            {
+                using (var bar = new SolidBrush(Theme.Accent))
+                    e.Graphics.FillRectangle(bar, e.Bounds.Left, e.Bounds.Top, 3, e.Bounds.Height);
+            }
             if (!_drawLogged)
             {
                 _drawLogged = true;
@@ -664,25 +920,24 @@ namespace LcscStudio
             for (var column = 0; column < _list.Columns.Count && column < e.Item.SubItems.Count; column++)
             {
                 var width = _list.Columns[column].Width;
+                if (width <= 0) continue; // 窄宽度下已隐藏的列
                 var fore = e.Item.Selected
-                    ? Color.White
+                    ? Theme.Text
                     : (column >= 3 ? Theme.TextMuted : Theme.Text);
                 var cell = new Rectangle(x, e.Bounds.Top, width, e.Bounds.Height);
                 var rect = cell;
                 rect.Inflate(-6, 0);
                 TextRenderer.DrawText(e.Graphics, e.Item.SubItems[column].Text, Theme.UiFont, rect, fore,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
-                    TextFormatFlags.NoPrefix);
+                    (column >= 3 ? TextFormatFlags.Right : TextFormatFlags.Left) |
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                 if (column < _list.Columns.Count - 1)
                 {
-                    using (var pen = new Pen(Color.FromArgb(0x33, 0x33, 0x33)))
-                        e.Graphics.DrawLine(pen, x + width - 1, e.Bounds.Top + 2,
-                            x + width - 1, e.Bounds.Bottom - 3);
+                    using (var pen = new Pen(Theme.Divider))
+                        e.Graphics.DrawLine(pen, x + width - 1, e.Bounds.Top + 3,
+                            x + width - 1, e.Bounds.Bottom - 4);
                 }
                 x += width;
             }
-            using (var pen = new Pen(Color.FromArgb(0x30, 0x30, 0x30)))
-                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
         }
 
         private async void RunSearch()
@@ -778,8 +1033,8 @@ namespace LcscStudio
                 _symbolCanvas.Symbol = details.Part.Symbol;
                 _footprintCanvas.Footprint = details.Part.Footprint;
                 _modelHint.Text = details.Part.Footprint.Model == null
-                    ? "该器件没有 3D 模型"
-                    : "3D 预览暂不可用（导入后可在 AD 中查看模型）";
+                    ? "该器件没有 3D 模型\n可在封装页查看 2D 图形"
+                    : "3D 预览暂不可用\n导入后可在 AD 中查看模型";
             }
             catch (Exception ex)
             {
@@ -1096,7 +1351,7 @@ namespace LcscStudio
         {
             if (string.IsNullOrWhiteSpace(message)) return;
             var line = DateTime.Now.ToString("HH:mm:ss") + "  " + message;
-            _log.AppendText(_log.TextLength == 0 ? line + Environment.NewLine : line + Environment.NewLine);
+            _log.AppendText(line + Environment.NewLine);
         }
     }
 }

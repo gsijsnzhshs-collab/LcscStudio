@@ -14,26 +14,36 @@ namespace LcscStudio
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
-        public static readonly Color Back = Color.FromArgb(0x2B, 0x2B, 0x2B);
-        public static readonly Color Surface = Color.FromArgb(0x33, 0x33, 0x33);
-        public static readonly Color SurfaceAlt = Color.FromArgb(0x3A, 0x3A, 0x3A);
-        public static readonly Color InputBack = Color.FromArgb(0x1E, 0x1F, 0x22);
-        public static readonly Color Border = Color.FromArgb(0x47, 0x47, 0x47);
+        // 四级表面：L0 面板底 → L1 区块卡 → L2 输入/列表 → L3 控件/浮条。
+        public static readonly Color Back = Color.FromArgb(0x1B, 0x1C, 0x1E);
+        public static readonly Color Surface = Color.FromArgb(0x23, 0x24, 0x27);
+        public static readonly Color SurfaceAlt = Color.FromArgb(0x2C, 0x2E, 0x32);
+        public static readonly Color SurfaceHover = Color.FromArgb(0x34, 0x37, 0x3B);
+        public static readonly Color InputBack = Color.FromArgb(0x17, 0x18, 0x1B);
+        public static readonly Color Border = Color.FromArgb(0x34, 0x36, 0x3A);
+        public static readonly Color Edge = Color.FromArgb(0x3A, 0x3C, 0x40);
+        public static readonly Color Divider = Color.FromArgb(0x2A, 0x2C, 0x2F);
         public static readonly Color Text = Color.FromArgb(0xE3, 0xE3, 0xE3);
-        public static readonly Color TextMuted = Color.FromArgb(0xB5, 0xB5, 0xB5);
+        public static readonly Color TextMuted = Color.FromArgb(0x9E, 0xA0, 0xA4);
         public static readonly Color Accent = Color.FromArgb(0x3C, 0x9B, 0xD8);
         public static readonly Color AccentHover = Color.FromArgb(0x4F, 0xB0, 0xEC);
         public static readonly Color AccentText = Color.FromArgb(0xFF, 0xFF, 0xFF);
-        public static readonly Color Canvas = Color.FromArgb(0x1E, 0x1E, 0x1E);
-        public static readonly Color CanvasGrid = Color.FromArgb(0x2A, 0x2A, 0x2A);
+        public static readonly Color Canvas = Color.FromArgb(0x17, 0x18, 0x1B);
+        public static readonly Color CanvasGrid = Color.FromArgb(0x24, 0x26, 0x29);
+        public static readonly Color CanvasGridIdle = Color.FromArgb(0x1D, 0x1E, 0x20);
+        public static readonly Color TextFaint = Color.FromArgb(0x6E, 0x70, 0x75);
         public static readonly Color CanvasInk = Color.FromArgb(0xD0, 0xD0, 0xD0);
+        public static readonly Color ListAlt = Color.FromArgb(0x1F, 0x20, 0x23);
+        public static readonly Color Selection = Color.FromArgb(0x26, 0x33, 0x3E);
+        public static readonly Color ListHover = Color.FromArgb(0x26, 0x28, 0x2C);
         public static readonly Color PinInk = Color.FromArgb(0xE0, 0x8A, 0x8A);
         public static readonly Color Success = Color.FromArgb(0x5C, 0xB8, 0x5C);
         public static readonly Color Error = Color.FromArgb(0xE0, 0x5A, 0x5A);
 
         public static readonly Font UiFont = new Font("Microsoft YaHei UI", 9f);
-        public static readonly Font TitleFont = new Font("Microsoft YaHei UI", 11f, FontStyle.Bold);
+        public static readonly Font TitleFont = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold);
         public static readonly Font SmallFont = new Font("Microsoft YaHei UI", 9f);
+        public static readonly Font LabelFont = new Font("Microsoft YaHei UI", 8.5f);
         public static readonly Font MonoFont = new Font("Consolas", 8.5f);
 
         public static void StyleForm(Form form)
@@ -139,6 +149,22 @@ namespace LcscStudio
             };
         }
 
+        // 区块卡：L1 表面 + 1px 边框 + 顶边高光；WinForms 没有阴影，
+        // 用明度和高光线模拟比面板底“凸起一层”。
+        public static void StyleCard(Control control, Padding padding)
+        {
+            control.BackColor = Surface;
+            control.Padding = padding;
+            control.Paint += (s, e) =>
+            {
+                if (control.Width < 2 || control.Height < 2) return;
+                using (var border = new Pen(Border))
+                    e.Graphics.DrawRectangle(border, 0, 0, control.Width - 1, control.Height - 1);
+                using (var edge = new Pen(Edge))
+                    e.Graphics.DrawLine(edge, 1, 1, control.Width - 2, 1);
+            };
+        }
+
         public static Button StyleButton(Button button, bool primary = false)
         {
             button.FlatStyle = FlatStyle.Flat;
@@ -150,7 +176,7 @@ namespace LcscStudio
             button.UseVisualStyleBackColor = false;
             button.Cursor = Cursors.Hand;
             var normal = button.BackColor;
-            var hover = primary ? AccentHover : Color.FromArgb(0x46, 0x49, 0x4D);
+            var hover = primary ? AccentHover : SurfaceHover;
             button.MouseEnter += (s, e) => { if (button.Enabled) button.BackColor = hover; };
             button.MouseLeave += (s, e) => { button.BackColor = normal; };
             button.EnabledChanged += (s, e) =>
@@ -320,11 +346,13 @@ namespace LcscStudio
             button.Width = Math.Max(minWidth, measured + 22);
         }
 
+        // 活动页签不再整块实心蓝：保持 L3 表面，用强调色文字 + 底部 2px 条区分，
+        // 把唯一的实心蓝留给主操作按钮。
         public static void SetTabActive(Button button, bool active)
         {
-            button.BackColor = active ? Accent : SurfaceAlt;
-            button.ForeColor = active ? AccentText : TextMuted;
-            button.FlatAppearance.BorderColor = active ? Accent : Border;
+            button.BackColor = SurfaceAlt;
+            button.ForeColor = active ? Accent : TextMuted;
+            button.FlatAppearance.BorderColor = Border;
         }
 
         public static void StyleTextBox(TextBox box, bool multiline = false)

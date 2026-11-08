@@ -8,20 +8,156 @@ using LcscLoader;
 
 namespace LcscStudio
 {
-    internal sealed class SymbolCanvas : Control
+    // 预览空状态：图标 + 标题 + 一行动作引导。
+    internal static class PreviewEmpty
     {
-        private EeSymbol _symbol;
+        public static void Draw(Graphics g, Size size, string title, string hint, bool footprint)
+        {
+            var cx = size.Width / 2f;
+            var cy = size.Height / 2f - 26f;
+            using (var pen = new Pen(Color.FromArgb(0x4A, 0x4C, 0x50)))
+            {
+                if (footprint)
+                {
+                    var pad = new RectangleF(cx - 18, cy - 10, 36, 20);
+                    using (var path = Rounded(pad, 5)) g.DrawPath(pen, path);
+                    g.DrawEllipse(pen, cx - 5, cy - 5, 10, 10);
+                }
+                else
+                {
+                    var body = new RectangleF(cx - 14, cy - 10, 28, 20);
+                    using (var path = Rounded(body, 3)) g.DrawPath(pen, path);
+                    g.DrawLine(pen, body.Left - 7, cy - 4, body.Left, cy - 4);
+                    g.DrawLine(pen, body.Left - 7, cy + 4, body.Left, cy + 4);
+                    g.DrawLine(pen, body.Right, cy, body.Right + 7, cy);
+                }
+            }
 
-        public SymbolCanvas()
+            using (var titleFont = new Font("Microsoft YaHei UI", 10f))
+            using (var titleBrush = new SolidBrush(Theme.TextMuted))
+            using (var hintBrush = new SolidBrush(Theme.TextFaint))
+            {
+                var titleSize = g.MeasureString(title, titleFont);
+                var hintSize = g.MeasureString(hint, Theme.LabelFont);
+                g.DrawString(title, titleFont, titleBrush, cx - titleSize.Width / 2f, cy + 22);
+                g.DrawString(hint, Theme.LabelFont, hintBrush, cx - hintSize.Width / 2f,
+                    cy + 24 + titleSize.Height);
+            }
+        }
+
+        private static GraphicsPath Rounded(RectangleF rect, float radius)
+        {
+            var r = Math.Min(radius, Math.Min(rect.Width, rect.Height) / 2);
+            var path = new GraphicsPath();
+            path.AddArc(rect.Left, rect.Top, r * 2, r * 2, 180, 90);
+            path.AddArc(rect.Right - r * 2, rect.Top, r * 2, r * 2, 270, 90);
+            path.AddArc(rect.Right - r * 2, rect.Bottom - r * 2, r * 2, r * 2, 0, 90);
+            path.AddArc(rect.Left, rect.Bottom - r * 2, r * 2, r * 2, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+    }
+
+    // 预览画布公共视图：滚轮缩放（以光标为锚点）、左键拖动平移、双击还原。
+    internal abstract class ZoomCanvas : Control
+    {
+        private const float MinZoom = 0.2f;
+        private const float MaxZoom = 8f;
+
+        protected float ViewZoom = 1f;
+        protected float ViewPanX;
+        protected float ViewPanY;
+
+        private bool _dragging;
+        private Point _dragPoint;
+
+        protected ZoomCanvas()
         {
             DoubleBuffered = true;
             BackColor = Theme.Canvas;
+            SetStyle(ControlStyles.Selectable, true);
+            SetStyle(ControlStyles.StandardClick, true);
+            SetStyle(ControlStyles.StandardDoubleClick, true);
         }
+
+        public void ResetView()
+        {
+            ViewZoom = 1f;
+            ViewPanX = 0f;
+            ViewPanY = 0f;
+            Invalidate();
+        }
+
+        public void ZoomIn() => ZoomAt(new Point(Width / 2, Height / 2), 1.2f);
+
+        public void ZoomOut() => ZoomAt(new Point(Width / 2, Height / 2), 1f / 1.2f);
+
+        private void ZoomAt(Point anchor, float factor)
+        {
+            var zoom = Math.Min(MaxZoom, Math.Max(MinZoom, ViewZoom * factor));
+            if (Math.Abs(zoom - ViewZoom) < 0.0001f) return;
+
+            // 保持光标下的内容点不动：平移量按缩放比重新换算。
+            var cx = anchor.X - Width / 2f;
+            var cy = anchor.Y - Height / 2f;
+            var ratio = zoom / ViewZoom;
+            ViewPanX = cx - (cx - ViewPanX) * ratio;
+            ViewPanY = cy - (cy - ViewPanY) * ratio;
+            ViewZoom = zoom;
+            Invalidate();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            ZoomAt(e.Location, e.Delta > 0 ? 1.15f : 1f / 1.15f);
+            base.OnMouseWheel(e);
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button != MouseButtons.Left) return;
+            Focus();
+            _dragging = true;
+            _dragPoint = e.Location;
+            Capture = true;
+            Cursor = Cursors.SizeAll;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (!_dragging) return;
+            ViewPanX += e.X - _dragPoint.X;
+            ViewPanY += e.Y - _dragPoint.Y;
+            _dragPoint = e.Location;
+            Invalidate();
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            if (e.Button != MouseButtons.Left || !_dragging) return;
+            _dragging = false;
+            Capture = false;
+            Cursor = Cursors.Default;
+        }
+
+        protected override void OnMouseDoubleClick(MouseEventArgs e)
+        {
+            base.OnMouseDoubleClick(e);
+            if (e.Button == MouseButtons.Left) ResetView();
+        }
+    }
+
+    internal sealed class SymbolCanvas : ZoomCanvas
+    {
+        private EeSymbol _symbol;
 
         public EeSymbol Symbol
         {
             get => _symbol;
-            set { _symbol = value; Invalidate(); }
+            set { _symbol = value; ResetView(); }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -32,7 +168,7 @@ namespace LcscStudio
             DrawGrid(g);
             if (_symbol == null)
             {
-                DrawEmpty(g, "无符号数据");
+                PreviewEmpty.Draw(g, ClientSize, "还没有符号", "搜索型号或编号后在此预览", false);
                 return;
             }
 
@@ -104,19 +240,24 @@ namespace LcscStudio
                 Add(MX(bx), MY(by));
             }
 
-            if (minX > maxX) { DrawEmpty(g, "空符号"); return; }
+            if (minX > maxX)
+            {
+                PreviewEmpty.Draw(g, ClientSize, "该器件没有符号图形", "可以查看封装或换一个器件", false);
+                return;
+            }
 
             const float pad = 14f;
             var spanX = Math.Max(0.2, maxX - minX);
             var spanY = Math.Max(0.2, maxY - minY);
-            var scale = Math.Min((Width - pad * 2) / spanX, (Height - pad * 2) / spanY);
-            if (scale <= 0 || float.IsInfinity((float)scale)) scale = 1;
+            var fit = Math.Min((Width - pad * 2) / spanX, (Height - pad * 2) / spanY);
+            if (fit <= 0 || float.IsInfinity((float)fit)) fit = 1;
+            var scale = fit * ViewZoom;
 
             var cx = (minX + maxX) / 2;
             var cy = (minY + maxY) / 2;
             PointF Map(double x, double y) => new PointF(
-                (float)(Width / 2 + (x - cx) * scale),
-                (float)(Height / 2 - (y - cy) * scale));
+                (float)(Width / 2 + ViewPanX + (x - cx) * scale),
+                (float)(Height / 2 + ViewPanY - (y - cy) * scale));
 
             foreach (var shape in _symbol.Shapes)
             {
@@ -277,38 +418,22 @@ namespace LcscStudio
         private void DrawGrid(Graphics g)
         {
             const int step = 24;
-            using (var pen = new Pen(Theme.CanvasGrid))
+            using (var pen = new Pen(_symbol == null ? Theme.CanvasGridIdle : Theme.CanvasGrid))
             {
                 for (var x = 0; x < Width; x += step) g.DrawLine(pen, x, 0, x, Height);
                 for (var y = 0; y < Height; y += step) g.DrawLine(pen, 0, y, Width, y);
             }
         }
-
-        private void DrawEmpty(Graphics g, string text)
-        {
-            using (var font = new Font("Microsoft YaHei UI", 10f))
-            using (var brush = new SolidBrush(Theme.TextMuted))
-            {
-                var size = g.MeasureString(text, font);
-                g.DrawString(text, font, brush, (Width - size.Width) / 2, (Height - size.Height) / 2);
-            }
-        }
     }
 
-    internal sealed class FootprintCanvas : Control
+    internal sealed class FootprintCanvas : ZoomCanvas
     {
         private EeFootprint _footprint;
-
-        public FootprintCanvas()
-        {
-            DoubleBuffered = true;
-            BackColor = Theme.Canvas;
-        }
 
         public EeFootprint Footprint
         {
             get => _footprint;
-            set { _footprint = value; Invalidate(); }
+            set { _footprint = value; ResetView(); }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -319,7 +444,7 @@ namespace LcscStudio
             DrawGrid(g);
             if (_footprint == null)
             {
-                DrawEmpty(g, "无封装数据");
+                PreviewEmpty.Draw(g, ClientSize, "还没有封装", "搜索型号或编号后在此预览", true);
                 return;
             }
 
@@ -328,13 +453,14 @@ namespace LcscStudio
             var originX = _footprint.BoxX + boxWidth / 2.0;
             var originY = _footprint.BoxY + boxHeight / 2.0;
             const float pad = 14f;
-            var scale = Math.Min((Width - pad * 2) / boxWidth, (Height - pad * 2) / boxHeight);
-            if (scale <= 0) scale = 4;
-            scale = Math.Max(0.5, scale);
+            var fit = Math.Min((Width - pad * 2) / boxWidth, (Height - pad * 2) / boxHeight);
+            if (fit <= 0) fit = 4;
+            fit = Math.Max(0.5, fit);
+            var scale = fit * ViewZoom;
 
             PointF Map(double x, double y) => new PointF(
-                (float)(Width / 2 + (x - originX) * scale),
-                (float)(Height / 2 - (originY - y) * scale));
+                (float)(Width / 2 + ViewPanX + (x - originX) * scale),
+                (float)(Height / 2 + ViewPanY - (originY - y) * scale));
 
             // EasyEDA can split one pad number across several primitives (e.g. SOT-89 pad 2);
             // draw the number once, on the largest primitive of that number.
@@ -595,20 +721,10 @@ namespace LcscStudio
         private void DrawGrid(Graphics g)
         {
             const int step = 24;
-            using (var pen = new Pen(Theme.CanvasGrid))
+            using (var pen = new Pen(_footprint == null ? Theme.CanvasGridIdle : Theme.CanvasGrid))
             {
                 for (var x = 0; x < Width; x += step) g.DrawLine(pen, x, 0, x, Height);
                 for (var y = 0; y < Height; y += step) g.DrawLine(pen, 0, y, Width, y);
-            }
-        }
-
-        private void DrawEmpty(Graphics g, string text)
-        {
-            using (var font = new Font("Microsoft YaHei UI", 10f))
-            using (var brush = new SolidBrush(Theme.TextMuted))
-            {
-                var size = g.MeasureString(text, font);
-                g.DrawString(text, font, brush, (Width - size.Width) / 2, (Height - size.Height) / 2);
             }
         }
     }
