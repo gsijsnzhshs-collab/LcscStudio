@@ -163,13 +163,8 @@ namespace LcscLoader
                 return;
             }
 
-            if (string.Equals(shape.Shape, "POLYGON", StringComparison.OrdinalIgnoreCase) &&
-                shape.Points.Count >= 3)
-            {
-                AddPolygonPad(context, shape, layer);
-                return;
-            }
-
+            // 多边形焊盘暂按外接圆角矩形近似：AD20 的库文档里
+            // GeometricPolygon/SetGeometricPolygon 无法稳定写入自定义轮廓（实测只落 4/123 个点、面积为 0）。
             var padShape = PadShape(shape);
 
             var pad = CreatePad(context, shape.X, shape.Y, shape.Width, shape.Height,
