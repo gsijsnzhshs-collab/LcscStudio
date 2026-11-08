@@ -79,6 +79,10 @@ namespace LcscLoader
             }
 
             ImportLog.Add(string.Format("PCB 封装：{0}（{1} 个图元）", pattern, part.Footprint.Shapes.Count));
+            Diag.Log("组件图元数=" + PrimitiveCount(component) + " 封装名=" + pattern +
+                     " 当前组件=" + (pcbLib.GetState_CurrentComponent() == null
+                         ? "null"
+                         : pcbLib.GetState_CurrentComponent().GetState_Pattern()));
 
             result.Component = component;
             result.PatternName = pattern;
@@ -228,6 +232,19 @@ namespace LcscLoader
                 sum += EeUnits.ToMm(a.X) * EeUnits.ToMm(b.Y) - EeUnits.ToMm(b.X) * EeUnits.ToMm(a.Y);
             }
             return Math.Abs(sum) / 2.0;
+        }
+
+        // 读回组件自身的图元数量，确认图元是否真的挂进封装（而非只挂到板上）。
+        private static string PrimitiveCount(IPCB_LibComponent component)
+        {
+            try
+            {
+                return component.GetPrimitiveCount(null).ToString();
+            }
+            catch (Exception ex)
+            {
+                return "err:" + ex.Message;
+            }
         }
 
         private static void AddHole(FpContext context, EeFpShape shape)
