@@ -32,6 +32,8 @@ namespace LcscStudio
         private readonly Label _targetLabel;
         private readonly Button _importButton;
         private readonly Button _placeButton;
+        private readonly Button _prevButton;
+        private readonly Button _nextButton;
         private readonly TextBox _log;
         private readonly ProgressBar _progress;
         private readonly TableLayoutPanel _root;
@@ -160,12 +162,22 @@ namespace LcscStudio
             searchRow.Controls.Add(pasteButton, 2, 0);
             root.Controls.Add(searchRow, 0, 1);
 
-            var listPanel = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 0), BackColor = Theme.Back };
+            var listPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = new Padding(0, 2, 0, 0),
+                Padding = new Padding(0),
+                BackColor = Theme.Back,
+            };
+            listPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36f));
+            listPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             var infoRow = new TableLayoutPanel
             {
-                Dock = DockStyle.Top,
-                Height = 36,
+                Dock = DockStyle.Fill,
                 ColumnCount = 3,
+                Margin = new Padding(0),
                 AutoSize = false,
                 BackColor = Theme.Back,
             };
@@ -182,17 +194,16 @@ namespace LcscStudio
                 Margin = new Padding(0),
                 AutoEllipsis = true,
             };
-            var prevButton = Theme.StyleButton(new Button { Text = "◀", Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0, 3, 2, 3) });
-            var nextButton = Theme.StyleButton(new Button { Text = "▶", Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0, 3, 0, 3) });
-            Theme.SizeToText(prevButton, 24, 30);
-            Theme.SizeToText(nextButton, 24, 30);
-            prevButton.Click += (s, e) => { if (_page > 1) { _page--; RunSearch(); } };
-            nextButton.Click += (s, e) => { _page++; RunSearch(); };
+            _prevButton = Theme.StyleButton(new Button { Text = "◀", Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0, 3, 2, 3) });
+            _nextButton = Theme.StyleButton(new Button { Text = "▶", Enabled = false, Font = Theme.SmallFont, Margin = new Padding(0, 3, 0, 3) });
+            Theme.SizeToText(_prevButton, 24, 30);
+            Theme.SizeToText(_nextButton, 24, 30);
+            _prevButton.Click += (s, e) => { if (_page > 1) { _page--; RunSearch(); } };
+            _nextButton.Click += (s, e) => { _page++; RunSearch(); };
             infoRow.Controls.Add(_info, 0, 0);
-            infoRow.Controls.Add(prevButton, 1, 0);
-            infoRow.Controls.Add(nextButton, 2, 0);
-            infoRow.Tag = new[] { prevButton, nextButton };
-            listPanel.Controls.Add(infoRow);
+            infoRow.Controls.Add(_prevButton, 1, 0);
+            infoRow.Controls.Add(_nextButton, 2, 0);
+            listPanel.Controls.Add(infoRow, 0, 0);
 
             _list = new ListView
             {
@@ -218,6 +229,9 @@ namespace LcscStudio
             };
             _list.OwnerDraw = true;
             _list.DrawItem += DrawRow;
+            // Details 视图下系统还会对每个单元格做一次默认绘制，会覆盖 DrawItem 里画的
+            // 整行底色（选中行只剩最底部一条蓝线）。挂空处理器即可关掉默认单元格绘制。
+            _list.DrawSubItem += (s, e) => { };
             Theme.EnableDarkScrollbars(_list);
             _list.HandleCreated += (s, e) =>
             {
@@ -231,7 +245,6 @@ namespace LcscStudio
             };
             _list.SizeChanged += (s, e) => LayoutColumns();
             _list.VisibleChanged += (s, e) => LayoutColumns();
-            listPanel.Controls.Add(_list);
             var columnHeader = BuildColumnHeader();
             Theme.AddBottomBorder(columnHeader, Color.FromArgb(0x2A, 0x2A, 0x2A));
             columnHeader.Paint += (s, e) =>
@@ -246,9 +259,23 @@ namespace LcscStudio
                     }
                 }
             };
-            listPanel.Controls.Add(columnHeader);
-            listPanel.Controls.Add(infoRow);
-            columnHeader.BringToFront();
+            // 表头与列表放进同一个表格：表头固定 24px，列表占据剩余空间，
+            // 避免之前两者重叠导致第一行被表头盖住、选中高亮只剩一条边。
+            var listTable = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                Margin = new Padding(0),
+                Padding = new Padding(0),
+                BackColor = Theme.Back,
+            };
+            listTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 24f));
+            listTable.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            columnHeader.Dock = DockStyle.Fill;
+            listTable.Controls.Add(columnHeader, 0, 0);
+            listTable.Controls.Add(_list, 0, 1);
+            listPanel.Controls.Add(listTable, 0, 1);
             root.Controls.Add(listPanel, 0, 2);
 
             var preview = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 0, 0), BackColor = Theme.Back };
@@ -533,15 +560,8 @@ namespace LcscStudio
 
         private void UpdatePagerButtons()
         {
-            // Pager buttons live inside the info row; locate them by tag.
-            foreach (Control control in _list.Parent.Controls)
-            {
-                if (control.Tag is Button[] buttons)
-                {
-                    buttons[0].Enabled = _page > 1;
-                    buttons[1].Enabled = _page * Math.Max(10, _settings.SearchPageSize) < _total;
-                }
-            }
+            _prevButton.Enabled = _page > 1;
+            _nextButton.Enabled = _page * Math.Max(10, _settings.SearchPageSize) < _total;
         }
 
         private Control BuildColumnHeader()
