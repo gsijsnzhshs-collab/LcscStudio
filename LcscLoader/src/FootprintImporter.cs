@@ -159,12 +159,51 @@ namespace LcscLoader
                 return;
             }
 
+            if (string.Equals(shape.Shape, "POLYGON", StringComparison.OrdinalIgnoreCase) &&
+                shape.Points.Count >= 3)
+            {
+                AddPolygonPad(context, shape, layer);
+                return;
+            }
+
             var padShape = PadShape(shape);
 
             var pad = CreatePad(context, shape.X, shape.Y, shape.Width, shape.Height,
                 shape.HoleRadius * 2.0, shape.HoleLength, shape.Number, padShape, layer,
                 shape.Plated, shape.Rotation, SlotAngle(shape));
             Attach(context, pad);
+        }
+
+        // AD 的焊盘没有多边形形状（TShape 最大只有圆角矩形）。用真实轮廓画一块铜皮区域，
+        // 再放一个小焊盘承担引脚编号与网络连接，外观与立创一致。
+        private static void AddPolygonPad(FpContext context, EeFpShape shape, TV6_Layer layer)
+        {
+            var region = Create<IPCB_Region>(TObjectId.eRegionObject);
+            if (region != null)
+            {
+                region.SetState_Layer(layer);
+                var contour = region.Internal_GetMainContour() as IPCB_Contour;
+                if (contour != null)
+                {
+                    contour.Clear();
+                    foreach (var point in shape.Points)
+                    {
+                        contour.AddPoint(
+                            context.CoordX(context.X(EeUnits.ToMm(point.X))),
+                            context.CoordY(context.Y(EeUnits.ToMm(point.Y))));
+                    }
+                    Attach(context, region);
+                }
+            }
+
+            const double anchor = 0.25;
+            var pad = CreatePad(context, shape.X, shape.Y, anchor, anchor, 0, 0,
+                shape.Number, TShape.eRounded, layer, false, shape.Rotation, 0);
+            Attach(context, pad);
+
+            Diag.Log("多边形焊盘 '" + shape.Number + "' 轮廓点=" + shape.Points.Count +
+                     " bbox(mm)=" + Diag.Mm(shape.Width) + "x" + Diag.Mm(shape.Height) +
+                     " layer=" + (int)layer + " 锚点直径=" + anchor + "mm");
         }
 
         private static void AddHole(FpContext context, EeFpShape shape)
