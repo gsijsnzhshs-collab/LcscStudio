@@ -53,19 +53,6 @@ fs.writeFileSync(generatedVersionFile, [
   '',
 ].join('\r\n'), 'utf8');
 
-// Explicit exclusions only; everything else is discovered by scanning, so new files
-// are picked up automatically. Paths are relative to the repository root.
-const EXCLUDED_SOURCES = {
-  'LcscLoader/src/MainForm.cs': 'dead code (removed in T4-6)',
-  'LcscStudio/src/PanelControl.cs': 'WPF UI (dropped by D3)',
-  'LcscStudio/src/Preview2D.cs': 'WPF UI (dropped by D3)',
-  'LcscStudio/src/Preview3D.cs': 'WPF UI (dropped by D3)',
-  'LcscStudio/src/PreviewFootprint.cs': 'WPF UI (dropped by D3)',
-  'LcscStudio/src/SettingsWindow.cs': 'WPF UI (dropped by D3)',
-  'LcscStudio/src/TargetWindow.cs': 'WPF UI (dropped by D3)',
-  'LcscStudio/src/UiTheme.cs': 'WPF UI (dropped by D3)',
-};
-
 function relativeToRoot(file) {
   return path.relative(root, file).split(path.sep).join('/');
 }
@@ -80,8 +67,9 @@ function walkCs(dir) {
   return result;
 }
 
+// Everything under the two source roots is compiled; files outside them
+// (legacy/wpf/) are not part of the plugin.
 const sources = [...walkCs(sourceDir), ...walkCs(uiDir)]
-  .filter(file => !(relativeToRoot(file) in EXCLUDED_SOURCES))
   .sort((a, b) => relativeToRoot(a).localeCompare(relativeToRoot(b), 'en'));
 
 console.log('sources: ' + sources.length + ' files');
