@@ -163,8 +163,14 @@ namespace LcscLoader
                 return;
             }
 
-            // 多边形焊盘暂按外接圆角矩形近似：AD20 的库文档里
-            // GeometricPolygon/SetGeometricPolygon 无法稳定写入自定义轮廓（实测只落 4/123 个点、面积为 0）。
+            // 多边形焊盘：先试写真实轮廓的铜皮区域，只有面积校验通过才采用；
+            // 不通过就退回外接圆角矩形近似，避免把无效对象写进库并弹出错误。
+            if (string.Equals(shape.Shape, "POLYGON", StringComparison.OrdinalIgnoreCase) &&
+                shape.Points.Count >= 3 && AddPolygonPad(context, shape, layer))
+            {
+                return;
+            }
+
             var padShape = PadShape(shape);
 
             var pad = CreatePad(context, shape.X, shape.Y, shape.Width, shape.Height,
@@ -173,53 +179,60 @@ namespace LcscLoader
             Attach(context, pad);
         }
 
-        // AD 的焊盘没有多边形形状（TShape 最大只有圆角矩形）。用真实轮廓画一块铜皮区域，
-        // 再放一个小焊盘承担引脚编号与网络连接，外观与立创一致。
-        private static void AddPolygonPad(FpContext context, EeFpShape shape, TV6_Layer layer)
+        // AD 的焊盘没有多边形形状（TShape 最大只有圆角矩形）。先试写真实轮廓的铜皮区域，
+        // 面积 > 0 才算成功；失败就返回 false 交给调用方退回近似形状，避免写坏对象。
+        private static bool AddPolygonPad(FpContext context, EeFpShape shape, TV6_Layer layer)
         {
-            var region = Create<IPCB_Region>(TObjectId.eRegionObject);
-            if (region != null)
+            try
             {
+                var region = Create<IPCB_Region>(TObjectId.eRegionObject);
+                if (region == null) return false;
                 region.SetState_Layer(layer);
 
-                // 必须经 GeometricPolygon 回填：Internal_GetMainContour 取到的是副本，
-                // 直接改它不会写回区域（实测面积仍为 0、轮廓未生效）。
-                var polygonObject = region.Internal_GetGeometricPolygon();
-                var polygon = polygonObject as IPCB_GeometricPolygon;
-                var contour = polygon == null ? null : polygon.Internal_AddEmptyContour() as IPCB_Contour;
-                if (contour != null)
+                // SetGeometricPolygon 实测只落 4/123 个点，改走 SetOutlineContour 提交轮廓对象。
+                var contour = region.Internal_GetMainContour() as IPCB_Contour;
+                if (contour == null)
                 {
-                    foreach (var point in shape.Points)
-                    {
-                        // shape.Points 已由解析器换算成 mm，不能再乘 EeUnits.MmPerUnit。
-                        contour.AddPoint(context.CoordX(context.X(point.X)),
-                                         context.CoordY(context.Y(point.Y)));
-                    }
-                    region.SetGeometricPolygon(polygonObject);
+                    Diag.Log("区域：拿不到主轮廓");
+                    return false;
                 }
-                Attach(context, region);
+                contour.Clear();
+                foreach (var point in shape.Points)
+                {
+                    // shape.Points 已由解析器换算成 mm，不能再乘 EeUnits.MmPerUnit。
+                    contour.AddPoint(context.CoordX(context.X(point.X)),
+                                     context.CoordY(context.Y(point.Y)));
+                }
+                region.SetOutlineContour(contour);
 
-                var readback = region.Internal_GetMainContour() as IPCB_Contour;
-                var readCount = readback == null ? -1 : readback.GetState_Count();
-                // 轮廓点同样是 1 基索引，读第 0 位只会拿到哨兵值。
-                var firstPoint = readback != null && readCount > 0
-                    ? readback.GetState_PointX(1) + "," + readback.GetState_PointY(1)
-                    : "n/a";
-                var areaCoord = region.GetState_Area();
-                Diag.Log("区域读回 轮廓点=" + readCount + "/" + shape.Points.Count +
-                         " 首点(coord)=" + firstPoint +
-                         " 面积(mm²)=" + Diag.Mm2(areaCoord) +
+                var area = region.GetState_Area();
+                Diag.Log("区域写入 点=" + contour.GetState_Count() + "/" + shape.Points.Count +
+                         " 面积(mm²)=" + Diag.Mm2(area) +
                          " 期望(mm²)=" + Diag.Mm(PolygonAreaMm2(shape)));
+                if (area <= 0)
+                {
+                    Diag.Log("区域无效，退回近似形状");
+                    return false;
+                }
+
+                Attach(context, region);
+                if (region.GetState_Area() <= 0)
+                {
+                    Diag.Log("区域挂载后面积为 0，退回近似形状");
+                    return false;
+                }
+
+                const double anchor = 0.25;
+                Attach(context, CreatePad(context, shape.X, shape.Y, anchor, anchor, 0, 0,
+                    shape.Number, TShape.eRounded, layer, false, shape.Rotation, 0));
+                Diag.Log("多边形焊盘 '" + shape.Number + "' 使用真实轮廓，锚点 " + anchor + "mm");
+                return true;
             }
-
-            const double anchor = 0.25;
-            var pad = CreatePad(context, shape.X, shape.Y, anchor, anchor, 0, 0,
-                shape.Number, TShape.eRounded, layer, false, shape.Rotation, 0);
-            Attach(context, pad);
-
-            Diag.Log("多边形焊盘 '" + shape.Number + "' 轮廓点=" + shape.Points.Count +
-                     " bbox(mm)=" + Diag.Mm(shape.Width) + "x" + Diag.Mm(shape.Height) +
-                     " layer=" + (int)layer + " 锚点直径=" + anchor + "mm");
+            catch (Exception ex)
+            {
+                Diag.Log("区域写入失败，退回近似形状：" + ex.Message);
+                return false;
+            }
         }
 
         // 用于核对区域轮廓：按轮廓点算期望面积（mm²）。点已是 mm，不能再换算。
