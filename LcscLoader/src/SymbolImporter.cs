@@ -284,30 +284,56 @@ namespace LcscLoader
                 objectId, TObjectCreationMode.eCreate_Default) as ISch_Polygon;
             if (container == null) return;
 
+            // 先挂载再写几何：诊断显示未挂载时 SetState_Vertex 不会保留坐标。
+            SetOwner(container);
+            component.AddSchObject(container);
+
             container.SetState_VerticesCount(points.Count);
             for (var i = 0; i < points.Count; i++)
                 container.SetState_Vertex(i, Point(points[i].X, points[i].Y));
+            ApplyPolyStyle(container, closed, stroke, strokeWidth, fill);
 
+            Diag.Log((closed ? "多边形" : "折线") + " 对象号=" + container.Internal_GetState_ObjectId() +
+                     " 挂载后写入 顶点 " + container.GetState_VerticesCount() + " 首点=" +
+                     VertexText(container, 0));
+
+            if (!VertexApplied(container))
+            {
+                // 备用路径：先建顶点槽再用 InsertVertex 重填。
+                container.ClearAllVertices();
+                for (var i = 0; i < points.Count; i++)
+                {
+                    container.InsertVertex(i);
+                    container.SetState_Vertex(i, Point(points[i].X, points[i].Y));
+                }
+                ApplyPolyStyle(container, closed, stroke, strokeWidth, fill);
+                Diag.Log("InsertVertex 后 顶点 " + container.GetState_VerticesCount() + " 首点=" +
+                         VertexText(container, 0));
+            }
+        }
+
+        private static void ApplyPolyStyle(
+            ISch_Polygon container, bool closed, string stroke, double strokeWidth, string fill)
+        {
             container.SetState_LineWidth(SchematicLineWidth(strokeWidth));
             container.SetState_Color(Conv.Color(stroke, Conv.DefaultStroke));
             container.SetState_IsSolid(closed && Conv.HasPaint(fill));
             container.SetState_AreaColor(Conv.Color(fill, Conv.DefaultFill));
             container.SetState_Transparent(false);
-            SetOwner(container);
-            component.AddSchObject(container);
+        }
 
-            var actualCount = container.GetState_VerticesCount();
-            var expected0 = AdApi.MmToCoord(points[0].X) + "," + AdApi.MmToCoord(points[0].Y);
-            var actual0 = "n/a";
-            if (actualCount > 0)
-            {
-                var vertex = container.Internal_GetState_Vertex(0);
-                if (vertex != null) actual0 = vertex.GetX() + "," + vertex.GetY();
-            }
-            Diag.Log((closed ? "多边形" : "折线") + " 顶点 期望=" + points.Count + " 实际=" + actualCount +
-                     " 首点(coord) 期望=" + expected0 + " 实际=" + actual0 +
-                     " 颜色=0x" + container.Internal_GetState_Color().ToString("X6") +
-                     " 实心=" + container.GetState_IsSolid());
+        private static bool VertexApplied(ISch_Polygon container)
+        {
+            if (container.GetState_VerticesCount() < 1) return false;
+            var vertex = container.Internal_GetState_Vertex(0);
+            return vertex != null && vertex.GetX() != int.MaxValue && vertex.GetY() != int.MaxValue;
+        }
+
+        private static string VertexText(ISch_Polygon container, int index)
+        {
+            if (container.GetState_VerticesCount() <= index) return "n/a";
+            var vertex = container.Internal_GetState_Vertex(index);
+            return vertex == null ? "null" : vertex.GetX() + "," + vertex.GetY();
         }
 
         private static void AddLabel(
@@ -351,17 +377,17 @@ namespace LcscLoader
                         TObjectId.ePin, TObjectCreationMode.eCreate_Default) as ISch_Pin;
                     if (pin == null) continue;
 
-                    // EasyEDA stores the pin at its connection tip, with rotation
-                    // pointing outward; Altium expects the tip plus the direction
-                    // toward the symbol body, i.e. the opposite rotation.
+                    // EasyEDA 的 rotation 表示引脚「朝外」的方向，连接点就在 X/Y；
+                    // 转到 AD 坐标系（Y 轴翻转）后方向仍是 0=右、90=上、180=左、270=下，
+                    // 因此与 AD 的朝向枚举直映射，不能再加 180°（加了会让引脚伸进器件体）。
                     TRotationBy90 orientation;
                     switch (((source.Rotation % 360) + 360) % 360)
                     {
-                        case 0: orientation = TRotationBy90.eRotate180; break;
-                        case 90: orientation = TRotationBy90.eRotate270; break;
-                        case 180: orientation = TRotationBy90.eRotate0; break;
-                        case 270: orientation = TRotationBy90.eRotate90; break;
-                        default: orientation = TRotationBy90.eRotate180; break;
+                        case 0: orientation = TRotationBy90.eRotate0; break;
+                        case 90: orientation = TRotationBy90.eRotate90; break;
+                        case 180: orientation = TRotationBy90.eRotate180; break;
+                        case 270: orientation = TRotationBy90.eRotate270; break;
+                        default: orientation = TRotationBy90.eRotate0; break;
                     }
 
                     pin.SetState_Location(Point(x(source.X), y(source.Y)));

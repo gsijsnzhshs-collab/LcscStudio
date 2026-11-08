@@ -55,6 +55,10 @@ namespace LcscLoader
             var pattern = pcbLib.GetUniqueCompName(baseName);
             component.SetState_Pattern(pattern);
             component.SetState_Description(part.Description);
+            // 新建组件会继承上一个组件的落点（实测为 1270 mm），不归零会让整个封装
+            // 离库原点极远；这里固定到原点，图元坐标随之以局部 mm 写入。
+            component.SetState_XLocation(0);
+            component.SetState_YLocation(0);
 
             Diag.Log("封装 " + pattern + " 原点(coord)=(" + component.GetState_XLocation() + "," +
                      component.GetState_YLocation() + ") BBox(mm)=(" + Diag.Mm(part.Footprint.BoxX) + "," +
