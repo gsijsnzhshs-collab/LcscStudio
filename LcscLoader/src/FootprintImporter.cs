@@ -163,14 +163,8 @@ namespace LcscLoader
                 return;
             }
 
-            // 多边形焊盘：先试写真实轮廓的铜皮区域，只有面积校验通过才采用；
-            // 不通过就退回外接圆角矩形近似，避免把无效对象写进库并弹出错误。
-            if (string.Equals(shape.Shape, "POLYGON", StringComparison.OrdinalIgnoreCase) &&
-                shape.Points.Count >= 3 && AddPolygonPad(context, shape, layer))
-            {
-                return;
-            }
-
+            // 多边形焊盘按外接圆角矩形近似：AD20 的 PcbLib 文档中
+            // SetGeometricPolygon 与 SetOutlineContour 均抛「外部组件发生异常」，无法写入自定义轮廓。
             var padShape = PadShape(shape);
 
             var pad = CreatePad(context, shape.X, shape.Y, shape.Width, shape.Height,
