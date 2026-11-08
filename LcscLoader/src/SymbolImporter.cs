@@ -18,6 +18,7 @@ namespace LcscLoader
         {
             var libReference = string.IsNullOrWhiteSpace(part.Symbol.Name) ? part.LcscId : part.Symbol.Name;
             var existing = schLib.GetState_SchComponentByLibRef(libReference);
+            ISch_Component component = null;
             if (existing != null)
             {
                 if (!overwrite)
@@ -25,23 +26,41 @@ namespace LcscLoader
                     ImportLog.Add("原理图符号已存在，跳过：" + libReference);
                     return existing;
                 }
-                schLib.RemoveSchComponent(existing);
+
+                // 覆盖时不要 RemoveSchComponent：AD 的库视图/原理图实例会保留旧对象引用，
+                // 移除后刷新会抛 NullReferenceException。改为清空内容后原地重建。
+                var container = existing as ISch_BasicContainer;
+                if (container != null)
+                {
+                    container.DeleteAll();
+                    component = existing;
+                }
+                else
+                {
+                    schLib.RemoveSchComponent(existing);
+                }
             }
 
-            var component = AdApi.SchServer.SchObjectFactory(
-                TObjectId.eSchComponent, TObjectCreationMode.eCreate_Default) as ISch_Component;
+            if (component == null)
+            {
+                component = AdApi.SchServer.SchObjectFactory(
+                    TObjectId.eSchComponent, TObjectCreationMode.eCreate_Default) as ISch_Component;
+            }
             if (component == null) throw new InvalidOperationException("无法创建原理图元件");
 
             component.SetState_CurrentPartID(1);
             component.SetState_DisplayMode(0);
             component.SetState_LibReference(libReference);
-            var designator = component.GetState_SchDesignator();
-            designator.SetState_Text(
-                string.IsNullOrWhiteSpace(part.Symbol.Prefix) ? "U?" : part.Symbol.Prefix);
             var smallFont = AdApi.SchServer.GetState_FontManager()
                 .GetFontID(6, 0, false, false, false, false, "Tahoma");
-            var designatorLabel = designator as ISch_Label;
-            if (designatorLabel != null) designatorLabel.SetState_FontId(smallFont);
+            var designator = component.GetState_SchDesignator();
+            if (designator != null)
+            {
+                designator.SetState_Text(
+                    string.IsNullOrWhiteSpace(part.Symbol.Prefix) ? "U?" : part.Symbol.Prefix);
+                var designatorLabel = designator as ISch_Label;
+                if (designatorLabel != null) designatorLabel.SetState_FontId(smallFont);
+            }
             try
             {
                 var comment = component.GetState_SchComment() as ISch_Label;
@@ -74,7 +93,7 @@ namespace LcscLoader
             if (!string.IsNullOrWhiteSpace(footprintName))
                 AssignFootprint(component, pcbLibPath, footprintName);
 
-            schLib.AddSchComponent(component);
+            if (existing == null) schLib.AddSchComponent(component);
             schLib.SetState_Current_SchComponent(component);
             schLib.GraphicallyInvalidate();
 
