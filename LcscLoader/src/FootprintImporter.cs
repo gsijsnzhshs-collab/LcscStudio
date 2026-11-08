@@ -186,29 +186,35 @@ namespace LcscLoader
             if (region != null)
             {
                 region.SetState_Layer(layer);
-                var contour = region.Internal_GetMainContour() as IPCB_Contour;
+
+                // 必须经 GeometricPolygon 回填：Internal_GetMainContour 取到的是副本，
+                // 直接改它不会写回区域（实测面积仍为 0、轮廓未生效）。
+                var polygonObject = region.Internal_GetGeometricPolygon();
+                var polygon = polygonObject as IPCB_GeometricPolygon;
+                var contour = polygon == null ? null : polygon.Internal_AddEmptyContour() as IPCB_Contour;
                 if (contour != null)
                 {
-                    contour.Clear();
                     foreach (var point in shape.Points)
                     {
-                        contour.AddPoint(
-                            context.CoordX(context.X(EeUnits.ToMm(point.X))),
-                            context.CoordY(context.Y(EeUnits.ToMm(point.Y))));
+                        // shape.Points 已由解析器换算成 mm，不能再乘 EeUnits.MmPerUnit。
+                        contour.AddPoint(context.CoordX(context.X(point.X)),
+                                         context.CoordY(context.Y(point.Y)));
                     }
-                    Attach(context, region);
-
-                    var readback = region.Internal_GetMainContour() as IPCB_Contour;
-                    var readCount = readback == null ? -1 : readback.GetState_Count();
-                    var firstPoint = readback != null && readCount > 0
-                        ? readback.GetState_PointX(0) + "," + readback.GetState_PointY(0)
-                        : "n/a";
-                    var areaCoord = region.GetState_Area();
-                    Diag.Log("区域读回 轮廓点=" + readCount + "/" + shape.Points.Count +
-                             " 首点(coord)=" + firstPoint +
-                             " 面积(mm²)=" + Diag.Mm2(areaCoord) +
-                             " 期望(mm²)=" + Diag.Mm(PolygonAreaMm2(shape)));
+                    region.SetGeometricPolygon(polygonObject);
                 }
+                Attach(context, region);
+
+                var readback = region.Internal_GetMainContour() as IPCB_Contour;
+                var readCount = readback == null ? -1 : readback.GetState_Count();
+                // 轮廓点同样是 1 基索引，读第 0 位只会拿到哨兵值。
+                var firstPoint = readback != null && readCount > 0
+                    ? readback.GetState_PointX(1) + "," + readback.GetState_PointY(1)
+                    : "n/a";
+                var areaCoord = region.GetState_Area();
+                Diag.Log("区域读回 轮廓点=" + readCount + "/" + shape.Points.Count +
+                         " 首点(coord)=" + firstPoint +
+                         " 面积(mm²)=" + Diag.Mm2(areaCoord) +
+                         " 期望(mm²)=" + Diag.Mm(PolygonAreaMm2(shape)));
             }
 
             const double anchor = 0.25;
@@ -221,7 +227,7 @@ namespace LcscLoader
                      " layer=" + (int)layer + " 锚点直径=" + anchor + "mm");
         }
 
-        // 用于核对区域轮廓：按轮廓点算期望面积（mm²）。
+        // 用于核对区域轮廓：按轮廓点算期望面积（mm²）。点已是 mm，不能再换算。
         private static double PolygonAreaMm2(EeFpShape shape)
         {
             double sum = 0;
@@ -229,7 +235,7 @@ namespace LcscLoader
             {
                 var a = shape.Points[i];
                 var b = shape.Points[(i + 1) % shape.Points.Count];
-                sum += EeUnits.ToMm(a.X) * EeUnits.ToMm(b.Y) - EeUnits.ToMm(b.X) * EeUnits.ToMm(a.Y);
+                sum += a.X * b.Y - b.X * a.Y;
             }
             return Math.Abs(sum) / 2.0;
         }
