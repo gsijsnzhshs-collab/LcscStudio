@@ -114,10 +114,19 @@ namespace LcscLoader
     // 避免上游字段变动导致静默错位；日志失败不影响解析。
     internal static class EeFormatLog
     {
+        // 供离线回归测试断言：正常器件应保持 0。
+        public static int Skips;
+
+        public static void Reset()
+        {
+            Skips = 0;
+        }
+
         public static void Skip(string source, string code, int fields, string raw, string reason)
         {
             try
             {
+                Skips++;
                 var text = raw ?? "";
                 if (text.Length > 120) text = text.Substring(0, 120) + "…";
                 PluginLog.Write("[format] " + source + " 跳过 " + code + " 字段=" + fields +

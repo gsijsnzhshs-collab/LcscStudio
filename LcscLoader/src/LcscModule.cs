@@ -1,36 +1,10 @@
 using System;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using DXP;
 
 namespace LcscLoader
 {
-    internal static class PluginLog
-    {
-        private static readonly object Sync = new object();
-
-        public static void Write(string message)
-        {
-            try
-            {
-                var directory = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AltiumLCSC");
-                Directory.CreateDirectory(directory);
-                var line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " " + message +
-                           Environment.NewLine;
-                lock (Sync)
-                {
-                    File.AppendAllText(Path.Combine(directory, "plugin.log"), line);
-                }
-            }
-            catch
-            {
-                // Diagnostics must never break the plugin.
-            }
-        }
-    }
-
     internal static class PluginContext
     {
         public static IClient Client;

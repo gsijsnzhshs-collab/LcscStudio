@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "note": "结构断言：引脚数、焊盘数、层数、3D 标志与格式守卫跳过数。夹具文本已脱敏，结构字段原样保留。",
+  "fixtures": [
+    {
+      "id": "C269701",
+      "kind": "电阻-0603",
+      "pins": 2,
+      "pads": 2,
+      "layers": 53,
+      "has3d": 1,
+      "formatSkips": 0
+    },
+    {
+      "id": "C183041",
+      "kind": "QFP-48",
+      "pins": 48,
+      "pads": 48,
+      "layers": 53,
+      "has3d": 1,
+      "formatSkips": 0
+    },
+    {
+      "id": "C2888414",
+      "kind": "BGA-60",
+      "pins": 60,
+      "pads": 60,
+      "layers": 53,
+      "has3d": 1,
+      "formatSkips": 0
+    },
+    {
+      "id": "C2040",
+      "kind": "QFN-56-3D",
+      "pins": 57,
+      "pads": 57,
+      "layers": 53,
+      "has3d": 1,
+      "formatSkips": 0
+    }
+  ]
+}
+
