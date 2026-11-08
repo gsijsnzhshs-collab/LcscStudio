@@ -32,8 +32,6 @@ namespace LcscStudio
 
     internal static class SearchClient
     {
-        private const string Version = "6.4.19.5";
-        private static readonly string[] Hosts = { "https://easyeda.com" };
         private static readonly HttpClient Client = CreateClient();
 
         private static HttpClient CreateClient()
@@ -43,7 +41,10 @@ namespace LcscStudio
             {
                 AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
             };
-            var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+            var client = new HttpClient(handler)
+            {
+                Timeout = TimeSpan.FromSeconds(EeEndpoints.Current.RequestTimeoutSeconds),
+            };
             client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36");
             client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
@@ -57,12 +58,14 @@ namespace LcscStudio
             if (string.IsNullOrWhiteSpace(keyword))
                 return new SearchPage();
 
+            var config = EeEndpoints.Current;
             Exception last = null;
-            foreach (var host in Hosts)
+            foreach (var host in config.SearchHosts)
             {
-                var url = string.Format(
-                    "{0}/api/eda/product/list?keyword={1}&currentPage={2}&pageSize={3}&version={4}",
-                    host, Uri.EscapeDataString(keyword.Trim()), page, pageSize, Version);
+                var path = config.SearchPath;
+                var url = string.Format("{0}{1}{2}keyword={3}&currentPage={4}&pageSize={5}&version={6}",
+                    host, path, path.IndexOf('?') >= 0 ? "&" : "?",
+                    Uri.EscapeDataString(keyword.Trim()), page, pageSize, config.ApiVersion);
                 try
                 {
                     using (var request = new HttpRequestMessage(HttpMethod.Get, url))
