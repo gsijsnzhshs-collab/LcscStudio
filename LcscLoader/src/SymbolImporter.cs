@@ -401,19 +401,19 @@ namespace LcscLoader
                         TObjectId.ePin, TObjectCreationMode.eCreate_Default) as ISch_Pin;
                     if (pin == null) continue;
 
-                    // EasyEDA 的引脚坐标是「靠器件体那一端」，线从该点向外延伸一个 length；
-                    // AD 的 Location 是电气端点（外端）。因此落点要沿朝外方向平移一个长度，
-                    // 否则引脚会整体贴到器件体上，与立创原图错开整整一个引脚长。
+                    // AD 的引脚线从 Location 沿 orientation 向外画一个 length；EasyEDA 的
+                    // 坐标是这条线的外端。把落点向内平移一个长度，线才会正好接上器件体
+                    // （否则引脚与器件体之间会空出一整个引脚长）。
                     var rotation = ((source.Rotation % 360) + 360) % 360;
                     var length = Math.Max(0.1, source.Length) * EeUnits.MmPerUnit;
-                    var tipX = x(source.X);
-                    var tipY = y(source.Y);
+                    var locationX = x(source.X);
+                    var locationY = y(source.Y);
                     switch (rotation)
                     {
-                        case 0: tipX += length; break;
-                        case 90: tipY += length; break;
-                        case 180: tipX -= length; break;
-                        case 270: tipY -= length; break;
+                        case 0: locationX -= length; break;
+                        case 90: locationY -= length; break;
+                        case 180: locationX += length; break;
+                        case 270: locationY += length; break;
                     }
 
                     // EasyEDA rotation 表示引脚「朝外」的方向，转到 AD 坐标系后仍是
@@ -427,7 +427,7 @@ namespace LcscLoader
                         default: orientation = TRotationBy90.eRotate0; break;
                     }
 
-                    pin.SetState_Location(Point(tipX, tipY));
+                    pin.SetState_Location(Point(locationX, locationY));
                     pin.SetState_PinLength(AdApi.MmToCoord(length));
                     pin.SetState_Orientation(orientation);
                     pin.SetState_Designator(source.Number);
@@ -448,7 +448,7 @@ namespace LcscLoader
                     var actual = pin.Internal_GetState_Location();
                     Diag.Log("引脚 " + source.Number +
                              " 坐标(mm)=(" + Diag.Mm(x(source.X)) + "," + Diag.Mm(y(source.Y)) +
-                             ") 期望 tip=(" + Diag.Mm(tipX) + "," + Diag.Mm(tipY) +
+                             ") 落点(mm)=(" + Diag.Mm(locationX) + "," + Diag.Mm(locationY) +
                              ") 长度(mm)=" + Diag.Mm(length) +
                              " 方向=" + source.Rotation +
                              " | 实际 loc(mm)=" + (actual == null ? "null" :
