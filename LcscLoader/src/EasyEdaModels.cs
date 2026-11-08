@@ -110,6 +110,26 @@ namespace LcscLoader
         public readonly List<KeyValuePair<string, string>> Parameters = new List<KeyValuePair<string, string>>();
     }
 
+    // 解析格式守卫：字段不足、未知图元或分段异常时记一行日志，
+    // 避免上游字段变动导致静默错位；日志失败不影响解析。
+    internal static class EeFormatLog
+    {
+        public static void Skip(string source, string code, int fields, string raw, string reason)
+        {
+            try
+            {
+                var text = raw ?? "";
+                if (text.Length > 120) text = text.Substring(0, 120) + "…";
+                PluginLog.Write("[format] " + source + " 跳过 " + code + " 字段=" + fields +
+                                " " + reason + " raw=" + text);
+            }
+            catch
+            {
+                // 日志写入失败不能中断解析。
+            }
+        }
+    }
+
     internal static class EasyEdaParser
     {
         public static LcscPart Parse(string lcscId, string json)
@@ -164,6 +184,7 @@ namespace LcscLoader
                 var raw = token.Type == JTokenType.String ? (string)token : token.ToString();
                 var fields = JsonUtil.Split(raw, '~');
                 if (fields.Length >= 2) part.Footprint.Layers[fields[0]] = fields[1];
+                else EeFormatLog.Skip("layer", fields.Length > 0 ? fields[0] : "?", fields.Length, raw, "层记录字段不足");
             }
 
             foreach (var token in JsonUtil.Arr(footprintDoc["shape"]))
@@ -204,15 +225,27 @@ namespace LcscLoader
             var text = (string)token;
             if (string.IsNullOrWhiteSpace(text)) return new JObject();
             try { return JObject.Parse(text); }
-            catch { return new JObject(); }
+            catch
+            {
+                EeFormatLog.Skip("document", "JSON", 0, text, "无法解析为 JSON");
+                return new JObject();
+            }
         }
 
         private static void ParsePin(string raw, EeSymbol symbol)
         {
             var segments = raw.Split(new[] { "^^" }, StringSplitOptions.None);
-            if (segments.Length < 5) return;
+            if (segments.Length < 5)
+            {
+                EeFormatLog.Skip("pin", "P", segments.Length, raw, "分段不足 5");
+                return;
+            }
             var head = JsonUtil.Split(segments[0], '~');
-            if (head.Length < 8) return;
+            if (head.Length < 8)
+            {
+                EeFormatLog.Skip("pin", "P", head.Length, raw, "头部字段不足 8");
+                return;
+            }
 
             var pin = new EePin
             {
@@ -258,10 +291,32 @@ namespace LcscLoader
             return fallback;
         }
 
+        // 各图元要求的最小字段数；低于此值说明上游记录被截断。
+        private static readonly Dictionary<string, int> SymbolMinimumFields = new Dictionary<string, int>
+        {
+            { "R", 12 }, { "C", 10 }, { "E", 11 }, { "A", 4 },
+            { "PL", 7 }, { "PG", 7 }, { "PT", 6 }, { "T", 13 },
+        };
+
+        private static readonly Dictionary<string, int> FootprintMinimumFields = new Dictionary<string, int>
+        {
+            { "PAD", 12 }, { "TRACK", 5 }, { "HOLE", 4 }, { "VIA", 6 }, { "CIRCLE", 6 },
+            { "ARC", 5 }, { "RECT", 9 }, { "TEXT", 14 }, { "SVGNODE", 2 },
+        };
+
+        private static bool CheckFields(string source, string[] parts, string raw,
+                                        Dictionary<string, int> minimums)
+        {
+            if (!minimums.TryGetValue(parts[0], out var minimum) || parts.Length >= minimum) return true;
+            EeFormatLog.Skip(source, parts[0], parts.Length, raw, "需要至少 " + minimum + " 项");
+            return false;
+        }
+
         private static void ParseSymbolShape(string raw, EeSymbol symbol)
         {
             var parts = JsonUtil.Split(raw, '~');
             if (parts.Length == 0) return;
+            if (!CheckFields("symbol", parts, raw, SymbolMinimumFields)) return;
             switch (parts[0])
             {
                 case "R":
@@ -299,7 +354,8 @@ namespace LcscLoader
                     symbol.Shapes.Add(new EeSymShape
                     {
                         Kind = EeSymKind.Arc, Path = parts[1],
-                        Stroke = parts[3], StrokeWidth = Num(parts[4]), Fill = "none",
+                        Stroke = parts[3], StrokeWidth = parts.Length > 4 ? Num(parts[4]) : 1,
+                        Fill = "none",
                     });
                     break;
                 case "PL":
@@ -329,6 +385,9 @@ namespace LcscLoader
                         Text = parts[12], Anchor = parts.Length > 14 ? parts[14] : "start",
                     });
                     break;
+                default:
+                    EeFormatLog.Skip("symbol", parts[0], parts.Length, raw, "未知图元");
+                    break;
             }
         }
 
@@ -343,6 +402,7 @@ namespace LcscLoader
         {
             var parts = JsonUtil.Split(raw, '~');
             if (parts.Length == 0) return;
+            if (!CheckFields("footprint", parts, raw, FootprintMinimumFields)) return;
             switch (parts[0])
             {
                 case "PAD":
@@ -438,6 +498,9 @@ namespace LcscLoader
                         Displayed = parts.Length > 12 ? JsonUtil.Flag(new JValue(parts[12]), true) : true,
                     });
                     break;
+                case "SOLIDREGION":
+                    // EasyEDA 的实心区域/挖空图元，当前版本不渲染，也不记“未知图元”。
+                    break;
                 case "SVGNODE":
                     if (parts.Length < 2) return;
                     try
@@ -469,6 +532,9 @@ namespace LcscLoader
                         // A malformed model node must not discard the rest of the footprint.
                     }
                     break;
+                default:
+                    EeFormatLog.Skip("footprint", parts[0], parts.Length, raw, "未知图元");
+                    break;
             }
         }
 
@@ -476,6 +542,8 @@ namespace LcscLoader
         {
             if (string.IsNullOrWhiteSpace(raw)) yield break;
             var values = raw.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (values.Length % 2 != 0)
+                EeFormatLog.Skip("points", "points", values.Length, raw, "坐标数为奇数");
             for (var i = 0; i + 1 < values.Length; i += 2)
                 yield return (EeUnits.ToMm(Num(values[i])), EeUnits.ToMm(Num(values[i + 1])));
         }
