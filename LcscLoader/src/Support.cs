@@ -35,6 +35,13 @@ namespace LcscLoader
 
         public static string Mm(int coord) => EDP.Utils.CoordToMMs(coord).ToString("0.000", CultureInfo.InvariantCulture);
 
+        // 面积以内部坐标单位²计；换算到 mm² 用单坐标换算值的平方。
+        public static string Mm2(long coordArea)
+        {
+            var mmPerCoord = EDP.Utils.CoordToMMs(1);
+            return (coordArea * mmPerCoord * mmPerCoord).ToString("0.000", CultureInfo.InvariantCulture);
+        }
+
         public static string Verdict(bool matches) => matches ? "OK" : "DIFF";
     }
 

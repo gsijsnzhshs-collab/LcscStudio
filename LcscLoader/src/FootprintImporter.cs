@@ -193,6 +193,17 @@ namespace LcscLoader
                             context.CoordY(context.Y(EeUnits.ToMm(point.Y))));
                     }
                     Attach(context, region);
+
+                    var readback = region.Internal_GetMainContour() as IPCB_Contour;
+                    var readCount = readback == null ? -1 : readback.GetState_Count();
+                    var firstPoint = readback != null && readCount > 0
+                        ? readback.GetState_PointX(0) + "," + readback.GetState_PointY(0)
+                        : "n/a";
+                    var areaCoord = region.GetState_Area();
+                    Diag.Log("区域读回 轮廓点=" + readCount + "/" + shape.Points.Count +
+                             " 首点(coord)=" + firstPoint +
+                             " 面积(mm²)=" + Diag.Mm2(areaCoord) +
+                             " 期望(mm²)=" + Diag.Mm(PolygonAreaMm2(shape)));
                 }
             }
 
@@ -204,6 +215,19 @@ namespace LcscLoader
             Diag.Log("多边形焊盘 '" + shape.Number + "' 轮廓点=" + shape.Points.Count +
                      " bbox(mm)=" + Diag.Mm(shape.Width) + "x" + Diag.Mm(shape.Height) +
                      " layer=" + (int)layer + " 锚点直径=" + anchor + "mm");
+        }
+
+        // 用于核对区域轮廓：按轮廓点算期望面积（mm²）。
+        private static double PolygonAreaMm2(EeFpShape shape)
+        {
+            double sum = 0;
+            for (var i = 0; i < shape.Points.Count; i++)
+            {
+                var a = shape.Points[i];
+                var b = shape.Points[(i + 1) % shape.Points.Count];
+                sum += EeUnits.ToMm(a.X) * EeUnits.ToMm(b.Y) - EeUnits.ToMm(b.X) * EeUnits.ToMm(a.Y);
+            }
+            return Math.Abs(sum) / 2.0;
         }
 
         private static void AddHole(FpContext context, EeFpShape shape)
