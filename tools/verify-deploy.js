@@ -84,11 +84,36 @@ function main() {
 
   const deployedIns = path.join(target.dir, 'LCSCLoader.Ins');
   if (fs.existsSync(deployedIns)) {
-    const match = fs.readFileSync(deployedIns, 'utf8').match(/EditorExePath\s*=\s*'([^']+)'/);
-    const exe = match ? match[1] : null;
+    const insText = fs.readFileSync(deployedIns, 'utf8');
+    const exeMatch = insText.match(/EditorExePath\s*=\s*'([^']+)'/);
+    const exe = exeMatch ? exeMatch[1] : null;
     const ok = exe === 'LcscLoader.dll';
     if (!ok) failures.push('LCSCLoader.Ins: EditorExePath is ' + (exe || 'missing'));
     console.log('  [' + (ok ? 'ok' : 'BAD') + '] EditorExePath = ' + (exe || 'missing'));
+
+    // version.json drives .Ins, the DLL and the registry; a split here is silent otherwise.
+    const versionMatch = insText.match(/Version\s*=\s*'Version ([^']+)'/);
+    const insVersion = versionMatch ? versionMatch[1] : null;
+    if (buildInfo && buildInfo.version) {
+      const same = insVersion === buildInfo.version;
+      if (!same) failures.push('LCSCLoader.Ins version ' + (insVersion || 'missing') +
+        ' does not match build ' + buildInfo.version);
+      console.log('  [' + (same ? 'ok' : 'BAD') + '] .Ins version = ' + (insVersion || 'missing') +
+        '  (build ' + buildInfo.version + ')');
+    }
+  }
+
+  if (target.registry && fs.existsSync(target.registry)) {
+    const xml = fs.readFileSync(target.registry, 'utf8');
+    const block = xml.match(/<Item HRID="LCSCLoader"[\s\S]*?<\/Item>/);
+    if (block) {
+      const match = block[0].match(/<Version>([^<]*)<\/Version>/);
+      const registryVersion = match ? match[1] : null;
+      const ok = !buildInfo || !buildInfo.version || registryVersion === buildInfo.version;
+      if (!ok) failures.push('ExtensionsRegistry.xml version ' + (registryVersion || 'missing') +
+        ' does not match build ' + buildInfo.version);
+      console.log('  [' + (ok ? 'ok' : 'BAD') + '] registry version = ' + (registryVersion || 'missing'));
+    }
   }
 
   if (buildInfo && buildInfo.output && buildInfo.output.sha256 !== expected.dll) {

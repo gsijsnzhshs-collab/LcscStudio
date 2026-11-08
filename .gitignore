@@ -1,6 +1,7 @@
 # ---- 构建产物 ----
 LcscLoader/bin/
 LcscLoader/tests/bin/
+LcscLoader/src/BuildVersion.cs
 bin/
 obj/
 

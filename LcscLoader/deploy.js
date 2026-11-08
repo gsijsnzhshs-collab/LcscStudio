@@ -44,6 +44,30 @@ function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex').toUpperCase();
 }
 
+// The version comes from the build artifact, and the rendered .Ins must agree with it:
+// a silent mismatch between registry, .Ins and DLL is the failure this prevents.
+function buildVersion() {
+  const buildInfoPath = path.join(root, 'bin', 'build-info.json');
+  if (!fs.existsSync(buildInfoPath)) {
+    throw new Error('Missing ' + buildInfoPath + ' (run node build.js first)');
+  }
+  const info = JSON.parse(fs.readFileSync(buildInfoPath, 'utf8'));
+  const version = String(info.version || '').trim();
+  if (!version) {
+    throw new Error('bin/build-info.json has no "version" field (rebuild with build.js)');
+  }
+  const insPath = path.join(root, 'bin', 'LCSCLoader.Ins');
+  if (!fs.existsSync(insPath)) {
+    throw new Error('Missing ' + insPath + ' (run node build.js first)');
+  }
+  const match = fs.readFileSync(insPath, 'utf8').match(/Version\s*=\s*'Version ([^']+)'/);
+  if (!match || match[1] !== version) {
+    throw new Error('LCSCLoader.Ins version (' + (match ? match[1] : 'missing') +
+      ') does not match build-info version (' + version + ')');
+  }
+  return version;
+}
+
 function oleDate(date) {
   return (date.getTime() - Date.UTC(1899, 11, 30)) / 86400000;
 }
@@ -66,7 +90,7 @@ function buildItem(extensionPath) {
     '    <LongDescription></LongDescription>',
     '    <SmallImage></SmallImage>',
     '    <LargeImage></LargeImage>',
-    '    <Version>1.0.3.0</Version>',
+    '    <Version>' + buildVersion() + '</Version>',
     '    <VersionGuid>D7E4C9A6-5FB1-4D3C-BE80-0B4C3F9D5E12</VersionGuid>',
     '    <ReleasedDate>' + now + '</ReleasedDate>',
     '    <ReleaseNotes></ReleaseNotes>',
@@ -108,7 +132,7 @@ function updateRegistry(registryPath, extensionPath) {
   }
 
   if (blockPattern.test(xml)) {
-    xml = xml.replace(/<Version>[^<]*<\/Version>/, '<Version>1.0.3.0</Version>');
+    xml = xml.replace(/<Version>[^<]*<\/Version>/, '<Version>' + buildVersion() + '</Version>');
     xml = xml.replace(/<VersionGuid>[^<]*<\/VersionGuid>/, '<VersionGuid>D7E4C9A6-5FB1-4D3C-BE80-0B4C3F9D5E12</VersionGuid>');
     fs.writeFileSync(registryPath, xml, 'utf8');
     return 'registry entry already present, refreshed';
@@ -157,6 +181,12 @@ function main() {
     if (!fs.existsSync(file.source)) {
       throw new Error('Missing build input: ' + file.source + ' (run node build.js first)');
     }
+  }
+
+  // Validate the version chain before touching the target, so a mismatch fails even
+  // on --dry-run instead of being discovered after the files are already copied.
+  if (!flags.uninstall) {
+    console.log('version: ' + buildVersion());
   }
 
   if (flags.uninstall) {

@@ -13,7 +13,7 @@ const LAYOUTS = ['auto', 'system', 'programdata'];
 
 const FILES = {
   dll: { source: ['bin', 'LcscLoader.dll'], name: 'LcscLoader.dll' },
-  ins: { source: ['LCSCLoader.Ins'], name: 'LCSCLoader.Ins' },
+  ins: { source: ['bin', 'LCSCLoader.Ins'], name: 'LCSCLoader.Ins' },
   rcs: { source: ['LcscLoader.rcs'], name: 'LCSCLoader.rcs' },
 };
 
