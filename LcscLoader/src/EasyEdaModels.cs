@@ -358,8 +358,8 @@ namespace LcscLoader
                             Rotation = Num(parts[11]),
                             HoleLength = parts.Length > 13 ? EeUnits.ToMm(Num(parts[13])) : 0,
                             // PAD 记录 18/19 项依次为助焊（钢网）与阻焊扩展，单位同为 10mil。
-                            PasteExpansion = parts.Length > 17 ? EeUnits.ToMm(Num(parts[17])) : 0,
-                            SolderExpansion = parts.Length > 18 ? EeUnits.ToMm(Num(parts[18])) : 0,
+                            PasteExpansion = ReadExpansion(parts, 17, 0),
+                            SolderExpansion = ReadExpansion(parts, 18, DefaultSolderExpansionMm),
                             Plated = parts.Length > 15 ? JsonUtil.Flag(new JValue(parts[15]), true) : true,
                         };
                         pad.Points.AddRange(ParsePoints(parts[10]));
@@ -490,6 +490,19 @@ namespace LcscLoader
             return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var result)
                 ? result
                 : fallback;
+        }
+
+        // 立创 PAD 记录缺少扩展字段时，阻焊按 4mil（0.1016mm）兜底；有值则优先用器件值。
+        private const double DefaultSolderExpansionMm = 0.1016;
+
+        private static double ReadExpansion(string[] parts, int index, double fallbackMm)
+        {
+            if (parts.Length <= index) return fallbackMm;
+            var text = parts[index].Trim();
+            if (text.Length == 0) return fallbackMm;
+            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                ? EeUnits.ToMm(value)
+                : fallbackMm;
         }
     }
 
