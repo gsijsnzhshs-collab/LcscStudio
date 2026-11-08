@@ -56,10 +56,11 @@ namespace LcscLoader
             var pattern = pcbLib.GetUniqueCompName(baseName);
             component.SetState_Pattern(pattern);
             component.SetState_Description(part.Description);
-            // 新建组件会继承上一个组件的落点（实测为 1270 mm），不归零会让整个封装
-            // 离库原点极远；这里固定到原点，图元坐标随之以局部 mm 写入。
-            component.SetState_XLocation(0);
-            component.SetState_YLocation(0);
+            // 组件落点必须对齐“当前库原点”（显示为 0,0），不能写死内部坐标 0：
+            // 内部 0 是 AD 绝对坐标系的角落，离库原点有 500,000,000 单位（实测）。
+            var board = pcbLib.GetState_Board();
+            component.SetState_XLocation(board.GetState_XOrigin());
+            component.SetState_YLocation(board.GetState_YOrigin());
 
             var context = new FpContext(part.Footprint, component);
             foreach (var shape in part.Footprint.Shapes)
@@ -88,6 +89,8 @@ namespace LcscLoader
             public readonly IPCB_LibComponent Component;
             private readonly int _offsetX;
             private readonly int _offsetY;
+            private readonly double _centerX;
+            private readonly double _centerY;
 
             public FpContext(EeFootprint footprint, IPCB_LibComponent component)
             {
@@ -95,11 +98,15 @@ namespace LcscLoader
                 Component = component;
                 _offsetX = component.GetState_XLocation();
                 _offsetY = component.GetState_YLocation();
+                var center = ReferenceCenter(footprint);
+                _centerX = center.X;
+                _centerY = center.Y;
             }
 
-            public double X(double x) => x - Footprint.BoxX - Footprint.BoxWidth / 2.0;
+            // 封装参考点放在引脚焊盘外接框中心，而不是整幅图（含丝印/3D/机械层）的中心。
+            public double X(double x) => x - _centerX;
 
-            public double Y(double y) => Footprint.BoxHeight - (y - Footprint.BoxY) - Footprint.BoxHeight / 2.0;
+            public double Y(double y) => _centerY - y;
 
             public int CoordX(double mm) => AdApi.MmToCoord(mm) + _offsetX;
 
@@ -113,6 +120,166 @@ namespace LcscLoader
                 return Footprint.Layers.TryGetValue(layerId, out var name)
                     ? LayerMap.TryMap(name, out layer, out error)
                     : LayerMap.TryMap(layerId, out layer, out error);
+            }
+        }
+
+        // 所有会真正导入 AD 的二维图元的外接框中心，等价于在 AD 里执行
+        // Edit » Set Reference » Center（3D 轮廓与未导入的 SOLIDREGION 不计入）。
+        internal static (double X, double Y) ReferenceCenter(EeFootprint footprint)
+        {
+            double minX = double.MaxValue, maxX = double.MinValue;
+            double minY = double.MaxValue, maxY = double.MinValue;
+            var any = false;
+
+            Action<double, double, double, double> include = (x0, x1, y0, y1) =>
+            {
+                minX = Math.Min(minX, x0);
+                maxX = Math.Max(maxX, x1);
+                minY = Math.Min(minY, y0);
+                maxY = Math.Max(maxY, y1);
+                any = true;
+            };
+
+            foreach (var shape in footprint.Shapes)
+            {
+                switch (shape.Kind)
+                {
+                    case EeFpKind.Pad:
+                        if (shape.Points.Count >= 3)
+                        {
+                            var x0 = double.MaxValue; var x1 = double.MinValue;
+                            var y0 = double.MaxValue; var y1 = double.MinValue;
+                            foreach (var point in shape.Points)
+                            {
+                                x0 = Math.Min(x0, point.X); x1 = Math.Max(x1, point.X);
+                                y0 = Math.Min(y0, point.Y); y1 = Math.Max(y1, point.Y);
+                            }
+                            if (x0 <= x1 && y0 <= y1) include(x0, x1, y0, y1);
+                            break;
+                        }
+                        {
+                            var extentX = RotatedExtent(shape.Width / 2.0, shape.Height / 2.0, shape.Rotation, true);
+                            var extentY = RotatedExtent(shape.Width / 2.0, shape.Height / 2.0, shape.Rotation, false);
+                            include(shape.X - extentX, shape.X + extentX,
+                                    shape.Y - extentY, shape.Y + extentY);
+                        }
+                        break;
+
+                    case EeFpKind.Track:
+                        {
+                            var half = Math.Max(shape.StrokeWidth, 0.01) / 2.0;
+                            var x0 = double.MaxValue; var x1 = double.MinValue;
+                            var y0 = double.MaxValue; var y1 = double.MinValue;
+                            foreach (var point in shape.Points)
+                            {
+                                x0 = Math.Min(x0, point.X); x1 = Math.Max(x1, point.X);
+                                y0 = Math.Min(y0, point.Y); y1 = Math.Max(y1, point.Y);
+                            }
+                            if (x0 <= x1 && y0 <= y1) include(x0 - half, x1 + half, y0 - half, y1 + half);
+                        }
+                        break;
+
+                    case EeFpKind.Hole:
+                        include(shape.X - shape.Radius, shape.X + shape.Radius,
+                                shape.Y - shape.Radius, shape.Y + shape.Radius);
+                        break;
+
+                    case EeFpKind.Via:
+                        {
+                            var half = Math.Max(shape.Diameter, 0.01) / 2.0;
+                            include(shape.X - half, shape.X + half, shape.Y - half, shape.Y + half);
+                        }
+                        break;
+
+                    case EeFpKind.Circle:
+                        {
+                            var half = shape.Radius + Math.Max(shape.StrokeWidth, 0.01) / 2.0;
+                            include(shape.X - half, shape.X + half, shape.Y - half, shape.Y + half);
+                        }
+                        break;
+
+                    case EeFpKind.Rectangle:
+                        {
+                            var half = Math.Max(shape.StrokeWidth, 0.01) / 2.0;
+                            var x0 = Math.Min(shape.X, shape.X + shape.Width);
+                            var x1 = Math.Max(shape.X, shape.X + shape.Width);
+                            var y0 = Math.Min(shape.Y, shape.Y + shape.Height);
+                            var y1 = Math.Max(shape.Y, shape.Y + shape.Height);
+                            include(x0 - half, x1 + half, y0 - half, y1 + half);
+                        }
+                        break;
+
+                    case EeFpKind.Arc:
+                        IncludeArcExtents(shape, include);
+                        break;
+
+                    case EeFpKind.Text:
+                        {
+                            var size = Math.Max(shape.FontSize, 0.1);
+                            var halfWidth = size * 0.6 * Math.Max(1, (shape.Text ?? "").Length) / 2.0;
+                            var halfHeight = size / 2.0;
+                            var extentX = RotatedExtent(halfWidth, halfHeight, shape.Rotation, true);
+                            var extentY = RotatedExtent(halfWidth, halfHeight, shape.Rotation, false);
+                            include(shape.X - extentX, shape.X + extentX,
+                                    shape.Y - extentY, shape.Y + extentY);
+                        }
+                        break;
+                }
+            }
+
+            if (!any)
+                return (footprint.BoxX + footprint.BoxWidth / 2.0,
+                        footprint.BoxY + footprint.BoxHeight / 2.0);
+            return ((minX + maxX) / 2.0, (minY + maxY) / 2.0);
+        }
+
+        // 旋转后的半宽（horizontal=true）或半高。
+        private static double RotatedExtent(double halfWidth, double halfHeight, double degrees, bool horizontal)
+        {
+            var radians = degrees * Math.PI / 180.0;
+            var cos = Math.Abs(Math.Cos(radians));
+            var sin = Math.Abs(Math.Sin(radians));
+            return horizontal
+                ? cos * halfWidth + sin * halfHeight
+                : sin * halfWidth + cos * halfHeight;
+        }
+
+        // 圆弧按 24 段采样取外接框；非圆弧路径退回折线点。
+        private static void IncludeArcExtents(
+            EeFpShape shape, Action<double, double, double, double> include)
+        {
+            var half = Math.Max(shape.StrokeWidth, 0.01) / 2.0;
+            try
+            {
+                if (SvgPath.TryGetCircularArc(shape.Path, out var arc))
+                {
+                    var centerX = EeUnits.ToMm(arc.CenterX);
+                    var centerY = EeUnits.ToMm(arc.CenterY);
+                    var radius = EeUnits.ToMm((arc.RadiusX + arc.RadiusY) / 2.0);
+                    const int steps = 24;
+                    for (var i = 0; i <= steps; i++)
+                    {
+                        var angle = (arc.StartAngle + arc.SweepAngle * i / steps) * Math.PI / 180.0;
+                        var x = centerX + radius * Math.Cos(angle);
+                        var y = centerY + radius * Math.Sin(angle);
+                        include(x - half, x + half, y - half, y + half);
+                    }
+                    return;
+                }
+
+                foreach (var sub in SvgPath.Parse(shape.Path, 0.02))
+                {
+                    foreach (var point in sub.Points)
+                    {
+                        var x = EeUnits.ToMm(point.X);
+                        var y = EeUnits.ToMm(point.Y);
+                        include(x - half, x + half, y - half, y + half);
+                    }
+                }
+            }
+            catch
+            {
+                // 路径解析失败时忽略该圆弧，不影响其余图元。
             }
         }
 
