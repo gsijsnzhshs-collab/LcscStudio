@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using DXP;
 using PCB;
 using SCH;
@@ -28,12 +30,30 @@ namespace LcscLoader
     {
         public int Imported;
         public int Failed;
+        public bool Cancelled;
     }
 
     internal static class ImportService
     {
-        // Must run on the Altium UI thread.
+        // 同步入口：用于放置前刷新等单件场景，整个过程留在 AD UI 线程。
         public static ImportOutcome Execute(ImportRequest request, Action<int, int> progress = null)
+        {
+            return ExecuteCoreAsync(request, progress, CancellationToken.None, false)
+                .GetAwaiter().GetResult();
+        }
+
+        // 批量导入：每件之间 await Task.Yield()，让 UI 重绘并响应取消；
+        // SDK 写入仍在调用线程（AD UI 线程）上执行。
+        public static Task<ImportOutcome> ExecuteAsync(
+            ImportRequest request, Action<int, int> progress, CancellationToken cancellationToken)
+        {
+            return ExecuteCoreAsync(request, progress, cancellationToken, true);
+        }
+
+        // Must run on the Altium UI thread.
+        private static async Task<ImportOutcome> ExecuteCoreAsync(
+            ImportRequest request, Action<int, int> progress,
+            CancellationToken cancellationToken, bool yieldBetweenItems)
         {
             var outcome = new ImportOutcome();
             var currentDoc = AdApi.Client.GetCurrentView()?.GetOwnerDocument();
@@ -68,6 +88,12 @@ namespace LcscLoader
             {
                 for (var i = 0; i < total; i++)
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        outcome.Cancelled = true;
+                        break;
+                    }
+
                     var item = request.Parts[i];
                     lastLibReference = null;
 
@@ -110,6 +136,7 @@ namespace LcscLoader
                     }
 
                     progress?.Invoke(i + 1, total);
+                    if (yieldBetweenItems) await Task.Yield();
                 }
 
                 // 正常情况下视图从未切换；个别版本若仍切换，收尾时切回原文档。

@@ -53,6 +53,8 @@ namespace LcscStudio
         private readonly Label _targetLabel;
         private readonly Button _importButton;
         private readonly Button _placeButton;
+        private Button _cancelImportButton;
+        private CancellationTokenSource _importCts;
         private readonly Button _prevButton;
         private readonly Button _nextButton;
         private readonly TextBox _log;
@@ -465,12 +467,25 @@ namespace LcscStudio
             {
                 Text = "放置到原理图", Margin = new Padding(0, 2, 0, 2),
             });
+            _cancelImportButton = Theme.StyleButton(new Button
+            {
+                Text = "取消", Margin = new Padding(6, 2, 0, 2), Visible = false,
+            });
+            Theme.SizeToText(_cancelImportButton, 30, 70);
             Theme.SizeToText(_importButton, 30, 104);
             Theme.SizeToText(_placeButton, 30, 130);
             _importButton.Click += OnImport;
             _placeButton.Click += OnPlace;
+            _cancelImportButton.Click += (s, e) =>
+            {
+                if (_importCts == null) return;
+                _importCts.Cancel();
+                _cancelImportButton.Enabled = false;
+                Log("正在取消导入…");
+            };
             buttonRow.Controls.Add(_importButton);
             buttonRow.Controls.Add(_placeButton);
+            buttonRow.Controls.Add(_cancelImportButton);
 
             // 下载位置单独成行：说明文字弱化、路径用正文色，长路径从中间省略以保留最末一级目录。
             var targetRow = new Panel
@@ -1183,7 +1198,13 @@ namespace LcscStudio
             }
 
             _importButton.Enabled = false;
+            _placeButton.Enabled = false;
             _progress.Visible = true;
+            _progress.Value = 0;
+            _cancelImportButton.Visible = true;
+            _cancelImportButton.Enabled = true;
+            _importCts = new CancellationTokenSource();
+            var token = _importCts.Token;
             try
             {
                 var request = new ImportRequest
@@ -1197,16 +1218,41 @@ namespace LcscStudio
                 };
 
                 ImportLog.Clear();
-                foreach (var item in selected)
+                var fetchTotal = selected.Count;
+                var fetchFailed = 0;
+                for (var index = 0; index < fetchTotal; index++)
                 {
+                    if (token.IsCancellationRequested)
+                    {
+                        Log("已取消导入（未写入库）。");
+                        return;
+                    }
+
+                    var item = selected[index];
                     Log("准备 " + item.LcscId + " …");
-                    var details = _details != null && _details.Part.LcscId == item.LcscId
-                        ? _details
-                        : await PartCache.LoadAsync(item.LcscId, _settings.ImportModel, CancellationToken.None);
+                    PartDetails details;
+                    try
+                    {
+                        details = _details != null && _details.Part.LcscId == item.LcscId
+                            ? _details
+                            : await PartCache.LoadAsync(item.LcscId, _settings.ImportModel, token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        // 单个器件抓取失败不影响整批：计失败数后继续。
+                        fetchFailed++;
+                        Log(item.LcscId + " 抓取失败：" + EeErrors.Describe(ex));
+                        _progress.Value = (index + 1) * 40 / Math.Max(1, fetchTotal);
+                        continue;
+                    }
 
                     if (_settings.ImportModel && details.Part.Footprint.Model != null)
                     {
-                        if (!await PartCache.EnsureStepAsync(details, CancellationToken.None))
+                        if (!await PartCache.EnsureStepAsync(details, token))
                             Log("警告：3D 模型下载失败，仅导入符号/封装：" + item.LcscId);
                     }
 
@@ -1223,18 +1269,31 @@ namespace LcscStudio
                     }
 
                     request.Parts.Add(new ImportPart { Part = details.Part, Model = model });
+                    _progress.Value = (index + 1) * 40 / Math.Max(1, fetchTotal);
                 }
 
-                var outcome = ImportService.Execute(request, (done, total) =>
+                if (token.IsCancellationRequested)
                 {
-                    _progress.Value = total == 0 ? 0 : done * 100 / total;
-                });
+                    Log("已取消导入（未写入库）。");
+                    return;
+                }
+
+                var outcome = await ImportService.ExecuteAsync(request, (done, total) =>
+                {
+                    _progress.Value = 40 + (total == 0 ? 0 : done * 60 / total);
+                }, token);
 
                 var text = ImportLog.Text;
                 if (!string.IsNullOrWhiteSpace(text)) Log(text.TrimEnd());
-                Log(string.Format("导入完成：成功 {0} 个，失败 {1} 个。", outcome.Imported, outcome.Failed));
+                if (outcome.Cancelled)
+                    Log(string.Format("已取消：已导入 {0} 个，失败 {1} 个。", outcome.Imported, outcome.Failed + fetchFailed));
+                else if (fetchFailed > 0)
+                    Log(string.Format("导入完成：成功 {0} 个，失败 {1} 个（其中抓取失败 {2} 个）。",
+                        outcome.Imported, outcome.Failed + fetchFailed, fetchFailed));
+                else
+                    Log(string.Format("导入完成：成功 {0} 个，失败 {1} 个。", outcome.Imported, outcome.Failed));
 
-                if (_settings.PlaceAfterImport && request.Parts.Count == 1)
+                if (!outcome.Cancelled && _settings.PlaceAfterImport && request.Parts.Count == 1)
                 {
                     var part = request.Parts[0].Part;
                     var reference = string.IsNullOrWhiteSpace(part.Symbol.Name) ? part.LcscId : part.Symbol.Name;
@@ -1244,6 +1303,10 @@ namespace LcscStudio
                         Log("自动放置失败，请手动点“放置到原理图”。");
                 }
             }
+            catch (OperationCanceledException)
+            {
+                Log("已取消导入。");
+            }
             catch (Exception ex)
             {
                 Log("导入失败：" + EeErrors.Describe(ex));
@@ -1252,7 +1315,14 @@ namespace LcscStudio
             finally
             {
                 _importButton.Enabled = true;
+                _placeButton.Enabled = true;
                 _progress.Visible = false;
+                _cancelImportButton.Visible = false;
+                if (_importCts != null)
+                {
+                    _importCts.Dispose();
+                    _importCts = null;
+                }
             }
         }
 
