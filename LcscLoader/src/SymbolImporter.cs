@@ -59,6 +59,9 @@ namespace LcscLoader
             component.SetState_ComponentDescription(part.Description);
 
             var origin = part.Symbol;
+            Diag.Log("符号 " + libReference + " 原点 units=(" + Diag.Mm(origin.OriginX) + "," +
+                     Diag.Mm(origin.OriginY) + ") 图元=" + part.Symbol.Shapes.Count +
+                     " 引脚=" + part.Symbol.Pins.Count);
             Func<double, double> x = value => (value - origin.OriginX) * EeUnits.MmPerUnit;
             Func<double, double> y = value => (origin.OriginY - value) * EeUnits.MmPerUnit;
 
@@ -161,6 +164,12 @@ namespace LcscLoader
             rectangle.SetState_Transparent(false);
             SetOwner(rectangle);
             component.AddSchObject(rectangle);
+
+            var actualRect = rectangle.Internal_GetState_Location();
+            Diag.Log("矩形 期望(mm)=(" + Diag.Mm(x1) + "," + Diag.Mm(y1) + ")-(" + Diag.Mm(x2) + "," + Diag.Mm(y2) +
+                     ") | 实际 loc(mm)=" + (actualRect == null
+                         ? "null"
+                         : Diag.Mm(actualRect.GetX()) + "," + Diag.Mm(actualRect.GetY())));
         }
 
         private static void AddEllipse(
@@ -286,6 +295,19 @@ namespace LcscLoader
             container.SetState_Transparent(false);
             SetOwner(container);
             component.AddSchObject(container);
+
+            var actualCount = container.GetState_VerticesCount();
+            var expected0 = AdApi.MmToCoord(points[0].X) + "," + AdApi.MmToCoord(points[0].Y);
+            var actual0 = "n/a";
+            if (actualCount > 0)
+            {
+                var vertex = container.Internal_GetState_Vertex(0);
+                if (vertex != null) actual0 = vertex.GetX() + "," + vertex.GetY();
+            }
+            Diag.Log((closed ? "多边形" : "折线") + " 顶点 期望=" + points.Count + " 实际=" + actualCount +
+                     " 首点(coord) 期望=" + expected0 + " 实际=" + actual0 +
+                     " 颜色=0x" + container.Internal_GetState_Color().ToString("X6") +
+                     " 实心=" + container.GetState_IsSolid());
         }
 
         private static void AddLabel(
@@ -359,6 +381,15 @@ namespace LcscLoader
 
                     SetOwner(pin);
                     component.AddSchObject(pin);
+
+                    var actual = pin.Internal_GetState_Location();
+                    Diag.Log("引脚 " + source.Number +
+                             " 期望 tip(mm)=(" + Diag.Mm(x(source.X)) + "," + Diag.Mm(y(source.Y)) +
+                             ") 长度(mm)=" + Diag.Mm(Math.Max(0.1, source.Length) * EeUnits.MmPerUnit) +
+                             " 方向=" + source.Rotation +
+                             " | 实际 loc(coord)=" + (actual == null ? "null" : actual.GetX() + "," + actual.GetY()) +
+                             " 长度(mm)=" + Diag.Mm(pin.GetState_PinLength()) +
+                             " 方向=" + pin.Internal_GetState_Orientation());
                 }
                 catch (Exception ex)
                 {
@@ -536,3 +567,4 @@ namespace LcscLoader
         }
     }
 }
+

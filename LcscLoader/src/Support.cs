@@ -21,6 +21,23 @@ namespace LcscLoader
         public static string Text => string.Join(Environment.NewLine, Lines);
     }
 
+    // 诊断插桩：把「期望几何」与「AD 读回的实际值」并排写进日志，
+    // 用于定位导入结果与预览不一致的具体环节。定位完成后可整段移除。
+    internal static class Diag
+    {
+        public static void Log(string text)
+        {
+            ImportLog.Add("[诊断] " + text);
+            PluginLog.Write("[诊断] " + text);
+        }
+
+        public static string Mm(double mm) => mm.ToString("0.000", CultureInfo.InvariantCulture);
+
+        public static string Mm(int coord) => EDP.Utils.CoordToMMs(coord).ToString("0.000", CultureInfo.InvariantCulture);
+
+        public static string Verdict(bool matches) => matches ? "OK" : "DIFF";
+    }
+
     internal static class Conv
     {
         public static bool HasPaint(string value)

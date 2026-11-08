@@ -56,6 +56,11 @@ namespace LcscLoader
             component.SetState_Pattern(pattern);
             component.SetState_Description(part.Description);
 
+            Diag.Log("封装 " + pattern + " 原点(coord)=(" + component.GetState_XLocation() + "," +
+                     component.GetState_YLocation() + ") BBox(mm)=(" + Diag.Mm(part.Footprint.BoxX) + "," +
+                     Diag.Mm(part.Footprint.BoxY) + ") " + Diag.Mm(part.Footprint.BoxWidth) + "x" +
+                     Diag.Mm(part.Footprint.BoxHeight) + " 图元=" + part.Footprint.Shapes.Count);
+
             var context = new FpContext(part.Footprint, component);
             foreach (var shape in part.Footprint.Shapes)
             {
@@ -339,6 +344,12 @@ namespace LcscLoader
             if (pad2 != null && shape == TShape.eRoundedRectangular)
                 pad2.SetState_StackCRPctOnLayer(pad.GetState_V7Layer(), 25);
 
+            Diag.Log("焊盘 '" + (name ?? "") + "' 期望(mm) " + Diag.Mm(width) + "x" + Diag.Mm(height) +
+                     " @(" + Diag.Mm(x) + "," + Diag.Mm(y) + ") layer=" + (int)layer +
+                     " rot=" + rotation + " | 实际 " + Diag.Mm(pad.GetState_TopXSize()) + "x" +
+                     Diag.Mm(pad.GetState_TopYSize()) + " @(" + Diag.Mm(pad.GetState_XLocation()) + "," +
+                     Diag.Mm(pad.GetState_YLocation()) + ") layer=" + pad.Internal_GetState_Layer() +
+                     " rot=" + pad.GetState_Rotation());
             return pad;
         }
 
@@ -356,6 +367,12 @@ namespace LcscLoader
             track.SetState_X2(context.CoordX(x2));
             track.SetState_Y2(context.CoordY(y2));
             Attach(context, track);
+
+            Diag.Log("线 layer=" + (int)layer + " 期望(mm) (" + Diag.Mm(x1) + "," + Diag.Mm(y1) + ")-(" +
+                     Diag.Mm(x2) + "," + Diag.Mm(y2) + ") 宽=" + Diag.Mm(width) + " | 实际 (" +
+                     Diag.Mm(track.GetState_X1()) + "," + Diag.Mm(track.GetState_Y1()) + ")-(" +
+                     Diag.Mm(track.GetState_X2()) + "," + Diag.Mm(track.GetState_Y2()) + ") 宽=" +
+                     Diag.Mm(track.GetState_Width()));
         }
 
         private static void AddArcCore(
@@ -374,6 +391,12 @@ namespace LcscLoader
             arc.SetState_StartAngle(startAngle);
             arc.SetState_EndAngle(endAngle);
             Attach(context, arc);
+
+            Diag.Log("圆弧 layer=" + (int)layer + " 期望 c=(" + Diag.Mm(centerX) + "," + Diag.Mm(centerY) +
+                     ") r=" + Diag.Mm(radius) + " 角=" + startAngle + ".." + endAngle + " | 实际 c=(" +
+                     Diag.Mm(arc.GetState_CenterX()) + "," + Diag.Mm(arc.GetState_CenterY()) + ") r=" +
+                     Diag.Mm(arc.GetState_Radius()) + " 角=" + arc.GetState_StartAngle() + ".." +
+                     arc.GetState_EndAngle());
         }
 
         private static void Attach(FpContext context, IPCB_Primitive primitive)
