@@ -30,6 +30,7 @@ namespace LcscLoader
 
                 // 就地覆盖：清空子对象后复用原组件，名称保持不变，避免累积重复符号。
                 component = existing;
+                RemoveDuplicateSymbols(schLib, libReference, existing);
                 try
                 {
                     ((ISch_BasicContainer)component).DeleteAll();
@@ -340,6 +341,41 @@ namespace LcscLoader
             container.SetState_IsSolid(closed && Conv.HasPaint(fill));
             container.SetState_AreaColor(Conv.Color(fill, Conv.DefaultFill));
             container.SetState_Transparent(false);
+        }
+
+        // 清理历史遗留：同名符号只保留准备复用的那一个，其余删除。
+        private static void RemoveDuplicateSymbols(
+            ISch_Lib schLib, string libReference, ISch_Component keep)
+        {
+            try
+            {
+                object iteratorObject = schLib.Internal_SchLibIterator_Create();
+                var iterator = iteratorObject as ISch_Iterator;
+                if (iterator == null) return;
+
+                var doomed = new List<ISch_Component>();
+                object current = iterator.Internal_FirstSchObject();
+                while (current != null)
+                {
+                    var comp = current as ISch_Component;
+                    if (comp != null && comp != keep &&
+                        string.Equals(comp.GetState_LibReference(), libReference, StringComparison.Ordinal))
+                    {
+                        doomed.Add(comp);
+                    }
+                    current = iterator.Internal_NextSchObject();
+                }
+
+                foreach (var comp in doomed)
+                {
+                    schLib.RemoveSchComponent(comp);
+                }
+                if (doomed.Count > 0) Diag.Log("清理重复符号 " + doomed.Count + " 个：" + libReference);
+            }
+            catch (Exception ex)
+            {
+                Diag.Log("清理重复符号失败：" + ex.Message);
+            }
         }
 
         // 诊断用：确认图元是否真的挂进了元件（17=多边形、18=折线、37=引脚）。

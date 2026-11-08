@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using PCB;
 
@@ -44,6 +45,7 @@ namespace LcscLoader
                     return result;
                 }
 
+                RemoveDuplicateComponents(pcbLib, baseName, existing);
                 // 覆盖时优先就地复用：清空旧图元后重填，名字保持不变。
                 // 之前「删除 + 新建 + GetUniqueCompName」在删除失败时会留下旧组件，
                 // 又生成带后缀的新名字，越导越多。
@@ -257,6 +259,43 @@ namespace LcscLoader
                 sum += a.X * b.Y - b.X * a.Y;
             }
             return Math.Abs(sum) / 2.0;
+        }
+
+        // 清理历史遗留：同名封装只保留准备复用的那一个，其余删除。
+        private static void RemoveDuplicateComponents(
+            IPCB_Library pcbLib, string name, IPCB_LibComponent keep)
+        {
+            try
+            {
+                var count = pcbLib.ComponentCount();
+                var seen = new List<IPCB_LibComponent>();
+                for (var i = 0; i < count; i++)
+                {
+                    var comp = pcbLib.Internal_GetComponent(i) as IPCB_LibComponent;
+                    if (comp != null && !seen.Contains(comp)) seen.Add(comp);
+                }
+                // 索引可能是 1 基，补扫一遍再按引用去重。
+                for (var i = 1; i <= count; i++)
+                {
+                    var comp = pcbLib.Internal_GetComponent(i) as IPCB_LibComponent;
+                    if (comp != null && !seen.Contains(comp)) seen.Add(comp);
+                }
+
+                var removed = 0;
+                foreach (var comp in seen)
+                {
+                    if (comp == null || comp == keep) continue;
+                    if (!string.Equals(comp.GetState_Pattern(), name, StringComparison.Ordinal)) continue;
+                    object doomed = comp;
+                    pcbLib.RemoveComponent(ref doomed);
+                    removed++;
+                }
+                if (removed > 0) Diag.Log("清理重复封装 " + removed + " 个：" + name);
+            }
+            catch (Exception ex)
+            {
+                Diag.Log("清理重复封装失败：" + ex.Message);
+            }
         }
 
         // 就地覆盖：清空组件内图元。FreePrimitives 不可用时不强求，交给上层退回删除重建。
