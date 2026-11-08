@@ -137,7 +137,7 @@ namespace LcscLoader
             var root = JObject.Parse(json);
             var component = JsonUtil.Obj(root["result"]);
             if (!component.HasValues)
-                throw new InvalidOperationException("EasyEDA 返回了空器件数据");
+                throw new EeNotFoundError("未找到器件 " + lcscId);
 
             var part = new LcscPart { LcscId = lcscId };
             part.Title = JsonUtil.Str(component["title"], lcscId);

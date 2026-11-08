@@ -76,25 +76,40 @@ namespace LcscStudio
                         {
                             if (!response.IsSuccessStatusCode)
                             {
-                                last = new InvalidOperationException(
-                                    "搜索接口返回 HTTP " + (int)response.StatusCode);
+                                last = new EeNetworkError("搜索接口返回 HTTP " + (int)response.StatusCode);
                                 continue;
                             }
                             var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                            return Parse(text);
+                            try
+                            {
+                                return Parse(text);
+                            }
+                            catch (EeFormatError)
+                            {
+                                throw;
+                            }
+                            catch (Exception ex)
+                            {
+                                throw new EeFormatError("搜索结果解析失败", ex);
+                            }
                         }
                     }
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException ex)
+                {
+                    if (cancellationToken.IsCancellationRequested) throw;
+                    last = new EeNetworkError("请求超时", ex);
+                }
+                catch (EeFormatError)
                 {
                     throw;
                 }
                 catch (Exception ex)
                 {
-                    last = ex;
+                    last = new EeNetworkError("无法访问立创搜索接口", ex);
                 }
             }
-            throw new InvalidOperationException("无法访问立创搜索接口，请检查网络。", last);
+            throw new EeNetworkError("无法访问立创搜索接口，请检查网络。", last);
         }
 
         private static SearchPage Parse(string json)

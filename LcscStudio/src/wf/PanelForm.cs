@@ -990,9 +990,9 @@ namespace LcscStudio
             }
             catch (Exception ex)
             {
-                _info.Text = "搜索失败：" +
-                    (ex.Message.Length > 60 ? ex.Message.Substring(0, 60) : ex.Message);
-                Log("搜索失败：" + ex.Message);
+                var reason = EeErrors.Describe(ex);
+                _info.Text = "搜索失败：" + reason;
+                Log("搜索失败：" + reason);
                 PluginLog.Write("panel search failed: " + ex);
             }
             finally
@@ -1038,7 +1038,8 @@ namespace LcscStudio
             }
             catch (Exception ex)
             {
-                _partMeta.Text = "器件数据加载失败：" + ex.Message;
+                _partMeta.Text = "器件数据加载失败：" + EeErrors.Describe(ex);
+                PluginLog.Write("panel details failed: " + ex);
             }
         }
 
@@ -1245,7 +1246,7 @@ namespace LcscStudio
             }
             catch (Exception ex)
             {
-                Log("导入失败：" + ex.Message);
+                Log("导入失败：" + EeErrors.Describe(ex));
                 PluginLog.Write("panel import failed: " + ex);
             }
             finally

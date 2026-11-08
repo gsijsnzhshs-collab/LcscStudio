@@ -72,30 +72,48 @@ namespace LcscLoader
                         {
                             if (!response.IsSuccessStatusCode)
                             {
-                                last = new InvalidOperationException(
-                                    string.Format("立创商城接口返回 HTTP {0}（{1}）", (int)response.StatusCode, url));
+                                last = (int)response.StatusCode == 404
+                                    ? (Exception)new EeNotFoundError("未找到器件 " + lcscId.Trim())
+                                    : new EeNetworkError(string.Format("接口返回 HTTP {0}", (int)response.StatusCode));
                                 continue;
                             }
                             return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                         }
                     }
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException ex)
                 {
-                    throw;
+                    if (cancellationToken.IsCancellationRequested) throw;
+                    last = new EeNetworkError("请求超时", ex);
                 }
                 catch (Exception ex)
                 {
-                    last = ex;
+                    last = new EeNetworkError("无法访问立创商城接口", ex);
                 }
             }
-            throw new InvalidOperationException("无法访问立创商城接口，请检查网络。", last);
+            if (last is EeNotFoundError) throw last;
+            throw new EeNetworkError("无法访问立创商城接口，请检查网络。", last);
         }
 
         public static async Task<LcscPart> GetPartAsync(string lcscId, CancellationToken cancellationToken)
         {
             var json = await GetPartJsonAsync(lcscId, cancellationToken).ConfigureAwait(false);
-            return EasyEdaParser.Parse(lcscId.Trim(), json);
+            try
+            {
+                return EasyEdaParser.Parse(lcscId.Trim(), json);
+            }
+            catch (EeNotFoundError)
+            {
+                throw;
+            }
+            catch (EeFormatError)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new EeFormatError("器件数据解析失败", ex);
+            }
         }
 
         // Tries to obtain the STEP model. The identifier may be an EasyEDA 3D library
@@ -183,7 +201,8 @@ namespace LcscLoader
                 }
                 catch (OperationCanceledException)
                 {
-                    throw;
+                    if (cancellationToken.IsCancellationRequested) throw;
+                    // 超时：尝试下一个 host。
                 }
                 catch
                 {
@@ -208,7 +227,8 @@ namespace LcscLoader
                 }
                 catch (OperationCanceledException)
                 {
-                    throw;
+                    if (cancellationToken.IsCancellationRequested) throw;
+                    // 超时：尝试下一个 host。
                 }
                 catch
                 {
