@@ -1047,11 +1047,11 @@ namespace LcscStudio
                             Log("已进入 AD 放置状态，移动鼠标到图纸上点击放下：" + reference);
                             return;
                         }
-                        PluginLog.Write("process fallback: choose location");
-                        if (AdApi.PlaceWithLocationPicker(reference, schLib))
-                            Log("请在图纸上点击放置位置：" + reference);
-                        else if (AdApi.PlaceInteractive(reference, schLib))
+                        PluginLog.Write("process fallback: interactive move");
+                        if (AdApi.PlaceInteractive(reference, schLib))
                             Log("已进入放置状态，请在原理图中移动并点击放置：" + reference);
+                        else if (AdApi.PlaceWithLocationPicker(reference, schLib))
+                            Log("请在图纸上点击放置位置：" + reference);
                         else
                         {
                             var reason = ImportLog.Text.Trim();

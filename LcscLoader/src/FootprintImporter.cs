@@ -15,10 +15,10 @@ namespace LcscLoader
 
     internal static class FootprintImporter
     {
-        public static FootprintImport Import(LcscPart part, bool overwrite)
+        public static FootprintImport Import(LcscPart part, bool overwrite, IPCB_Library library = null)
         {
             var result = new FootprintImport();
-            var pcbLib = AdApi.PcbServer.GetCurrentPCBLibrary();
+            var pcbLib = library ?? AdApi.PcbServer.GetCurrentPCBLibrary();
             if (pcbLib == null)
                 throw new InvalidOperationException("请先打开一个 PCB 库（PcbLib）文档");
 

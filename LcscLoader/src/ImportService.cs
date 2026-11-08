@@ -40,24 +40,24 @@ namespace LcscLoader
 
             IServerDocument pcbDoc = null;
             IServerDocument schDoc = null;
+            IPCB_Library pcbLib = null;
+            ISch_Lib schLib = null;
 
+            // 库文件用“隐藏打开 + 按路径取接口”，全程不激活文档，避免界面在
+            // PcbLib / SchLib 之间来回切换。
             if (request.Footprint)
             {
-                pcbDoc = AdApi.OpenDocument("PcbLib", request.PcbLibPath);
-                if (pcbDoc == null)
-                    throw new InvalidOperationException("无法创建或打开 PCB 库：" + request.PcbLibPath);
-                AdApi.Client.ShowDocument(pcbDoc);
-                if (AdApi.PcbServer.GetCurrentPCBLibrary() == null)
+                pcbDoc = AdApi.EnsureDocumentHidden("PcbLib", request.PcbLibPath);
+                pcbLib = AdApi.PcbServer.Internal_GetPCBLibraryByPath(request.PcbLibPath) as IPCB_Library;
+                if (pcbDoc == null || pcbLib == null)
                     throw new InvalidOperationException("无法打开 PCB 库：" + request.PcbLibPath);
             }
 
             if (request.Symbol)
             {
-                schDoc = AdApi.OpenDocument("SchLib", request.SchLibPath);
-                if (schDoc == null)
-                    throw new InvalidOperationException("无法创建或打开原理图库：" + request.SchLibPath);
-                AdApi.Client.ShowDocument(schDoc);
-                if (!(AdApi.SchServer.GetCurrentSchDocument() is ISch_Lib))
+                schDoc = AdApi.EnsureDocumentHidden("SchLib", request.SchLibPath);
+                schLib = AdApi.SchServer.Internal_GetSchDocumentByPath(request.SchLibPath) as ISch_Lib;
+                if (schDoc == null || schLib == null)
                     throw new InvalidOperationException("无法打开原理图库：" + request.SchLibPath);
             }
 
@@ -74,13 +74,12 @@ namespace LcscLoader
                     try
                     {
                         FootprintImport footprint = null;
-                        if (pcbDoc != null)
+                        if (pcbLib != null && pcbDoc != null)
                         {
-                            AdApi.Client.ShowDocument(pcbDoc);
                             AdApi.PcbServer.PreProcess();
                             try
                             {
-                                footprint = FootprintImporter.Import(item.Part, request.Overwrite);
+                                footprint = FootprintImporter.Import(item.Part, request.Overwrite, pcbLib);
                                 if (footprint != null && !footprint.Skipped && item.Model != null)
                                     Model3DImporter.AddBody(footprint, item.Part.Footprint.Model, item.Model);
                             }
@@ -91,13 +90,8 @@ namespace LcscLoader
                             pcbDoc.DoFileSave("PcbLib");
                         }
 
-                        if (schDoc != null)
+                        if (schLib != null && schDoc != null)
                         {
-                            AdApi.Client.ShowDocument(schDoc);
-                            var schLib = AdApi.SchServer.GetCurrentSchDocument() as ISch_Lib;
-                            if (schLib == null)
-                                throw new InvalidOperationException("当前文档不是原理图库");
-
                             SymbolImporter.Import(item.Part, schLib, request.PcbLibPath,
                                 footprint?.PatternName, request.Overwrite);
                             schDoc.DoFileSave("SchLib");
@@ -118,7 +112,8 @@ namespace LcscLoader
                     progress?.Invoke(i + 1, total);
                 }
 
-                if (currentDoc != null)
+                // 正常情况下视图从未切换；个别版本若仍切换，收尾时切回原文档。
+                if (currentDoc != null && AdApi.Client.GetCurrentView()?.GetOwnerDocument() != currentDoc)
                     AdApi.Client.ShowDocument(currentDoc);
 
                 if (request.Place && lastLibReference != null)
