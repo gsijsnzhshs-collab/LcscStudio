@@ -63,6 +63,8 @@ namespace LcscLoader
         public double X, Y, Width, Height, Rotation;
         public double Radius, StrokeWidth, HoleRadius, HoleLength, Diameter;
         public double FontSize;
+        public double PasteExpansion;
+        public double SolderExpansion;
         public string LayerId = "";
         public string Number = "";
         public string Net = "";
@@ -355,6 +357,9 @@ namespace LcscLoader
                             HoleRadius = EeUnits.ToMm(Num(parts[9])),
                             Rotation = Num(parts[11]),
                             HoleLength = parts.Length > 13 ? EeUnits.ToMm(Num(parts[13])) : 0,
+                            // PAD 记录 18/19 项依次为助焊（钢网）与阻焊扩展，单位同为 10mil。
+                            PasteExpansion = parts.Length > 17 ? EeUnits.ToMm(Num(parts[17])) : 0,
+                            SolderExpansion = parts.Length > 18 ? EeUnits.ToMm(Num(parts[18])) : 0,
                             Plated = parts.Length > 15 ? JsonUtil.Flag(new JValue(parts[15]), true) : true,
                         };
                         pad.Points.AddRange(ParsePoints(parts[10]));

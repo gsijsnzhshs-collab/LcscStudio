@@ -59,9 +59,6 @@ namespace LcscLoader
             component.SetState_ComponentDescription(part.Description);
 
             var origin = part.Symbol;
-            Diag.Log("符号 " + libReference + " 原点 units=(" + Diag.Mm(origin.OriginX) + "," +
-                     Diag.Mm(origin.OriginY) + ") 图元=" + part.Symbol.Shapes.Count +
-                     " 引脚=" + part.Symbol.Pins.Count);
             Func<double, double> x = value => (value - origin.OriginX) * EeUnits.MmPerUnit;
             Func<double, double> y = value => (origin.OriginY - value) * EeUnits.MmPerUnit;
 
@@ -69,7 +66,6 @@ namespace LcscLoader
                 AddShape(component, shape, x, y);
 
             AddPins(component, part.Symbol.Pins, x, y);
-            LogObjectSummary(component);
             PositionFields(component, part.Symbol, x, y);
 
             foreach (var parameter in part.Parameters)
@@ -165,12 +161,6 @@ namespace LcscLoader
             rectangle.SetState_Transparent(false);
             SetOwner(rectangle);
             component.AddSchObject(rectangle);
-
-            var actualRect = rectangle.Internal_GetState_Location();
-            Diag.Log("矩形 期望(mm)=(" + Diag.Mm(x1) + "," + Diag.Mm(y1) + ")-(" + Diag.Mm(x2) + "," + Diag.Mm(y2) +
-                     ") | 实际 loc(mm)=" + (actualRect == null
-                         ? "null"
-                         : Diag.Mm(actualRect.GetX()) + "," + Diag.Mm(actualRect.GetY())));
         }
 
         private static void AddEllipse(
@@ -285,7 +275,7 @@ namespace LcscLoader
                 objectId, TObjectCreationMode.eCreate_Default) as ISch_Polygon;
             if (container == null) return;
 
-            // 先挂载再写几何：诊断显示未挂载时 SetState_Vertex 不会保留坐标。
+            // 先挂载再写几何：未挂载时 SetState_Vertex 不会保留坐标。
             SetOwner(container);
             component.AddSchObject(container);
 
@@ -295,17 +285,11 @@ namespace LcscLoader
                 container.SetState_Vertex(i + 1, Point(points[i].X, points[i].Y));
             ApplyPolyStyle(container, closed, stroke, strokeWidth, fill);
 
-            Diag.Log((closed ? "多边形" : "折线") + " 对象号=" + container.Internal_GetState_ObjectId() +
-                     " 顶点=" + container.GetState_VerticesCount() +
-                     " 第1位=" + VertexText(container, 1) + " 第0位=" + VertexText(container, 0));
-
             if (IsSentinel(container, 1))
             {
                 // 兜底：若实际是 0 基，就按 0 基重写一次。
                 for (var i = 0; i < points.Count; i++)
                     container.SetState_Vertex(i, Point(points[i].X, points[i].Y));
-                Diag.Log("改按 0 基写入后 第0位=" + VertexText(container, 0) +
-                         " 第1位=" + VertexText(container, 1));
             }
         }
 
@@ -319,45 +303,10 @@ namespace LcscLoader
             container.SetState_Transparent(false);
         }
 
-        // 诊断用：确认图元是否真的挂进了元件（17=多边形、18=折线、37=引脚）。
-        private static void LogObjectSummary(ISch_Component component)
-        {
-            try
-            {
-                object iteratorObject = component.Internal_SchIterator_Create();
-                var iterator = iteratorObject as ISch_Iterator;
-                if (iterator == null)
-                {
-                    Diag.Log("元件对象枚举：迭代器不可用");
-                    return;
-                }
-                var ids = new List<int>();
-                object current = iterator.Internal_FirstSchObject();
-                while (current != null)
-                {
-                    var basic = current as ISch_BasicContainer;
-                    ids.Add(basic == null ? -1 : basic.Internal_GetState_ObjectId());
-                    current = iterator.Internal_NextSchObject();
-                }
-                component.SchIterator_Destroy(ref iteratorObject);
-                Diag.Log("元件内对象数=" + ids.Count + " 对象号=" + string.Join(",", ids));
-            }
-            catch (Exception ex)
-            {
-                Diag.Log("元件对象枚举失败：" + ex.Message);
-            }
-        }
-
         private static bool IsSentinel(ISch_Polygon container, int index)
         {
             var vertex = container.Internal_GetState_Vertex(index);
             return vertex == null || vertex.GetX() == int.MaxValue || vertex.GetY() == int.MaxValue;
-        }
-
-        private static string VertexText(ISch_Polygon container, int index)
-        {
-            var vertex = container.Internal_GetState_Vertex(index);
-            return vertex == null ? "null" : vertex.GetX() + "," + vertex.GetY();
         }
 
         private static void AddLabel(
@@ -444,17 +393,6 @@ namespace LcscLoader
 
                     SetOwner(pin);
                     component.AddSchObject(pin);
-
-                    var actual = pin.Internal_GetState_Location();
-                    Diag.Log("引脚 " + source.Number +
-                             " 坐标(mm)=(" + Diag.Mm(x(source.X)) + "," + Diag.Mm(y(source.Y)) +
-                             ") 落点(mm)=(" + Diag.Mm(locationX) + "," + Diag.Mm(locationY) +
-                             ") 长度(mm)=" + Diag.Mm(length) +
-                             " 方向=" + source.Rotation +
-                             " | 实际 loc(mm)=" + (actual == null ? "null" :
-                                 Diag.Mm(actual.GetX()) + "," + Diag.Mm(actual.GetY())) +
-                             " 长度(mm)=" + Diag.Mm(pin.GetState_PinLength()) +
-                             " 方向=" + pin.Internal_GetState_Orientation());
                 }
                 catch (Exception ex)
                 {
