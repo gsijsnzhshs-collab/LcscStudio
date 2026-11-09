@@ -18,6 +18,7 @@ namespace LcscStudio
         private readonly Button _searchButton;
         private readonly Label _info;
         private readonly ListView _list;
+        private readonly ListView _paramList;
         private readonly Label _partTitle;
         private readonly Label _partMeta;
         private readonly SymbolCanvas _symbolCanvas = new SymbolCanvas();
@@ -60,7 +61,7 @@ namespace LcscStudio
         private readonly TextBox _log;
         private readonly ProgressBar _progress;
         private readonly TableLayoutPanel _root;
-        private readonly Button[] _tabButtons = new Button[3];
+        private readonly Button[] _tabButtons = new Button[4];
         private Panel _logBody;
         private Button _logToggle;
         private bool _logExpanded = true;
@@ -384,6 +385,37 @@ namespace LcscStudio
             previewHost.Controls.Add(_footprintCanvas);
             previewHost.Controls.Add(_symbolCanvas);
 
+            // 参数页：选中器件后列出解析出的全部字段；值列吃掉剩余宽度，长值用 tooltip 兜住。
+            _paramList = new ListView
+            {
+                Dock = DockStyle.Fill,
+                View = View.Details,
+                FullRowSelect = true,
+                MultiSelect = false,
+                HideSelection = true,
+                BorderStyle = BorderStyle.None,
+                HeaderStyle = ColumnHeaderStyle.Nonclickable,
+                ShowItemToolTips = true,
+                Margin = new Padding(0),
+                Visible = false,
+            };
+            Theme.StyleList(_paramList);
+            _paramList.Columns.Add("参数", 104);
+            _paramList.Columns.Add("值", 240);
+            _paramList.SmallImageList = new ImageList
+            {
+                ImageSize = new Size(1, 22),
+                ColorDepth = ColorDepth.Depth32Bit,
+            };
+            _paramList.OwnerDraw = true;
+            _paramList.DrawItem += DrawParameterRow;
+            _paramList.DrawColumnHeader += DrawParameterHeader;
+            // Details 视图会对每个单元格再做一次默认绘制，会盖掉整行底色。
+            _paramList.DrawSubItem += (s, e) => { };
+            Theme.EnableDarkScrollbars(_paramList);
+            _paramList.Resize += (s, e) => LayoutParameterColumns();
+            previewHost.Controls.Add(_paramList);
+
             // 预览右下角的缩放条：方形加减按钮，重置按钮画成向外扩张的箭头；
             // 平移直接按住左键拖动。
             _zoomOutButton = Theme.StyleButton(new Button { Text = "－", Margin = new Padding(0, 0, 4, 0) });
@@ -409,7 +441,7 @@ namespace LcscStudio
             _viewBar.BringToFront();
             previewHost.Resize += (s, e) => PlaceViewBar(previewHost);
 
-            var tabNames = new[] { "符号", "封装", "3D" };
+            var tabNames = new[] { "符号", "封装", "3D", "参数" };
             for (var i = 0; i < tabNames.Length; i++)
             {
                 var index = i;
@@ -624,6 +656,8 @@ namespace LcscStudio
             _symbolCanvas.Visible = index == 0;
             _footprintCanvas.Visible = index == 1;
             _modelHint.Visible = index == 2;
+            _paramList.Visible = index == 3;
+            if (index == 3) LayoutParameterColumns();
             _viewBar.Visible = index < 2;
             for (var i = 0; i < _tabButtons.Length; i++)
             {
@@ -976,6 +1010,38 @@ namespace LcscStudio
             }
         }
 
+        private void DrawParameterHeader(object sender, DrawListViewColumnHeaderEventArgs e)
+        {
+            using (var brush = new SolidBrush(Theme.Surface))
+                e.Graphics.FillRectangle(brush, e.Bounds);
+            var rect = e.Bounds;
+            rect.Inflate(-6, 0);
+            TextRenderer.DrawText(e.Graphics, e.Header.Text, Theme.SmallFont, rect, Theme.TextMuted,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+            using (var pen = new Pen(Theme.Border))
+                e.Graphics.DrawLine(pen, e.Bounds.Left, e.Bounds.Bottom - 1,
+                    e.Bounds.Right, e.Bounds.Bottom - 1);
+        }
+
+        private void DrawParameterRow(object sender, DrawListViewItemEventArgs e)
+        {
+            var back = e.ItemIndex % 2 == 0 ? Theme.InputBack : Theme.ListAlt;
+            using (var brush = new SolidBrush(back))
+                e.Graphics.FillRectangle(brush, e.Bounds);
+            var x = e.Bounds.Left;
+            for (var column = 0; column < _paramList.Columns.Count && column < e.Item.SubItems.Count; column++)
+            {
+                var width = _paramList.Columns[column].Width;
+                var rect = new Rectangle(x, e.Bounds.Top, width, e.Bounds.Height);
+                rect.Inflate(-6, 0);
+                TextRenderer.DrawText(e.Graphics, e.Item.SubItems[column].Text, Theme.UiFont, rect,
+                    column == 0 ? Theme.TextMuted : Theme.Text,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+                    TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                x += width;
+            }
+        }
+
         private async void RunSearch()
         {
             var keyword = _search.Text.Trim();
@@ -1059,6 +1125,8 @@ namespace LcscStudio
             ClearDetails("正在加载器件数据…");
             _partTitle.Text = item.Mpn;
             _partMeta.Text = item.LcscId + " · " + item.Package + " · " + item.Manufacturer;
+            // 立创商品参数与 EasyEDA 器件数据并行抓取，参数页先拿到哪个都不影响预览。
+            var attributesTask = LcscProductInfo.LoadParametersAsync(item.LcscId, CancellationToken.None);
             try
             {
                 var details = await PartCache.LoadAsync(item.LcscId, _settings.ImportModel, CancellationToken.None);
@@ -1068,6 +1136,7 @@ namespace LcscStudio
                                  " · " + details.Part.Manufacturer;
                 _symbolCanvas.Symbol = details.Part.Symbol;
                 _footprintCanvas.Footprint = details.Part.Footprint;
+                FillParameters(details.Part, await attributesTask);
                 _modelHint.Text = details.Part.Footprint.Model == null
                     ? "该器件没有 3D 模型\n可在封装页查看 2D 图形"
                     : "3D 预览暂不可用\n导入后可在 AD 中查看模型";
@@ -1075,6 +1144,8 @@ namespace LcscStudio
             catch (Exception ex)
             {
                 _partMeta.Text = "器件数据加载失败：" + EeErrors.Describe(ex);
+                // 符号/封装拿不到时，至少把立创商品参数留在参数页。
+                FillParameters(null, await attributesTask);
                 PluginLog.Write("panel details failed: " + ex);
             }
         }
@@ -1084,7 +1155,63 @@ namespace LcscStudio
             _details = null;
             _symbolCanvas.Symbol = null;
             _footprintCanvas.Footprint = null;
+            FillParameters(null, null);
             _partMeta.Text = hint ?? "";
+        }
+
+        // 参数页内容：立创商品参数（属性/参数值）在前，其次是 EasyEDA 字段。
+        private void FillParameters(LcscPart part, List<KeyValuePair<string, string>> attributes)
+        {
+            _paramList.BeginUpdate();
+            try
+            {
+                _paramList.Items.Clear();
+                if (attributes != null)
+                {
+                    foreach (var pair in attributes)
+                        AddParameterRow(pair.Key, pair.Value);
+                }
+                if (part != null)
+                {
+                    foreach (var pair in part.Parameters)
+                        AddParameterRow(pair.Key, pair.Value);
+                }
+                if (_paramList.Items.Count == 0)
+                    AddParameterRow("提示", part == null ? "选中器件后显示参数" : "该器件没有参数记录");
+            }
+            finally
+            {
+                _paramList.EndUpdate();
+                LayoutParameterColumns();
+            }
+        }
+
+        private void AddParameterRow(string name, string value)
+        {
+            var row = new ListViewItem(name) { ToolTipText = value };
+            row.SubItems.Add(value);
+            _paramList.Items.Add(row);
+        }
+
+        private void LayoutParameterColumns()
+        {
+            if (_paramList == null || _paramList.Columns.Count < 2) return;
+            var width = _paramList.ClientSize.Width - 4;
+            if (width <= 0) return;
+            // 参数名里最长的是 “Manufacturer Part / EasyEDA UUID”，按其宽度定列宽即可，
+            // 不在控件创建/绘制期间遍历 Items，避免句柄未就绪时取到空项。
+            var name = 120;
+            try
+            {
+                name = TextRenderer.MeasureText("Manufacturer Part", Theme.UiFont).Width + 24;
+            }
+            catch
+            {
+                // 量字失败时退回固定宽度，布局宁宽勿崩。
+            }
+            name = Math.Min(name, Math.Max(120, width * 46 / 100));
+            _paramList.Columns[0].Width = name;
+            _paramList.Columns[1].Width = Math.Max(120, width - name);
         }
 
         private void OpenSettings()
