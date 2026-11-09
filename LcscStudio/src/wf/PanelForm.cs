@@ -724,6 +724,11 @@ namespace LcscStudio
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
+        private const int SbHorz = 0;
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowScrollBar(IntPtr hWnd, int wBar, bool bShow);
+
         private void FixHeaderHeight()
         {
             try
@@ -793,7 +798,7 @@ namespace LcscStudio
             var width = Math.Max(80, clientWidth - 20);
 
             // 窄宽度下先隐藏单价，再隐藏库存，避免“¥0…”“4…”这类无意义截断。
-            var visible = width < 260 ? 3 : width < 330 ? 4 : 5;
+            var visible = width < 220 ? 3 : width < 300 ? 4 : 5;
             if (_lastLayoutWidth != width || _lastVisibleColumns != visible)
             {
                 _lastLayoutWidth = width;
@@ -802,7 +807,8 @@ namespace LcscStudio
                     " listClient=" + clientWidth + " panel=" + Width + "x" + Height);
             }
 
-            var minimum = new[] { 70, 60, 56, 42, 42 };
+            // 压缩列宽时给表头留足空间：“库存”在 34px 下会被截成“库…”。
+            var minimum = new[] { 64, 52, 46, 40, 42 };
             var ratio = new[] { 0.20, 0.28, 0.22, 0.14, 0.16 };
             var widths = new int[5];
             var minSum = 0;
@@ -841,6 +847,19 @@ namespace LcscStudio
                     _headerTable.ColumnStyles[i].Width = columnWidth;
                 if (_headerLabels[i] != null) _headerLabels[i].Visible = i < visible;
             }
+
+            HideHorizontalScroll();
+        }
+
+        // 列宽已经压到可视宽度内，横向滚动条没有任何用处，而且系统浅色条在深色面板里很突兀。
+        private void HideHorizontalScroll()
+        {
+            if (!_list.IsHandleCreated) return;
+            try { ShowScrollBar(_list.Handle, SbHorz, false); }
+            catch
+            {
+                // 隐藏失败不影响使用。
+            }
         }
 
         // 悬停只重绘发生变化的两行，整块 Invalidate 会在列表里闪一下。
@@ -878,6 +897,8 @@ namespace LcscStudio
                 var perPage = (int)SendMessage(_list.Handle, LvmGetCountPerPage, IntPtr.Zero, IntPtr.Zero);
                 var top = (int)SendMessage(_list.Handle, LvmGetTopIndex, IntPtr.Zero, IntPtr.Zero);
                 _listScroll.Configure(0, count, perPage, top);
+                // 列表内容变化后系统可能重新显示横向条，顺手再压一次。
+                HideHorizontalScroll();
             }
 
             if (_log != null && _log.IsHandleCreated && _log.Visible)
