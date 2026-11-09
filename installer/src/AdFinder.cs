@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using Microsoft.Win32;
 
@@ -280,6 +281,9 @@ namespace LcscSetup
                 {
                     var backupPath = target + ".bak-" + stamp;
                     File.Copy(target, backupPath, true);
+                    // File.Copy 保留源文件的修改时间，统一改成当前时间，清理时才能按新旧排序。
+                    try { File.SetLastWriteTimeUtc(backupPath, DateTime.UtcNow); } catch { }
+                    PruneBackups(target);
                     log("  备份 " + name + " → " + Path.GetFileName(backupPath));
                 }
                 File.WriteAllBytes(target, Payload.For(name));
@@ -325,6 +329,32 @@ namespace LcscSetup
             install.InstalledHash = Hashes.Sha256(dll);
             try { install.InstalledVersion = FileVersionInfo.GetVersionInfo(dll).FileVersion ?? "?"; }
             catch { install.InstalledVersion = "?"; }
+        }
+
+        // 每个文件只保留最近 3 份 .bak-*；旧部署留下的几百份会在下次安装时被清掉。
+        private const int BackupKeep = 3;
+
+        private static void PruneBackups(string targetFile)
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(targetFile);
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+                var prefix = Path.GetFileName(targetFile) + ".bak-";
+                var stale = Directory.GetFiles(dir, prefix + "*")
+                    .Select(path => new FileInfo(path))
+                    .OrderByDescending(file => file.LastWriteTimeUtc)
+                    .Skip(BackupKeep)
+                    .ToList();
+                foreach (var file in stale)
+                {
+                    try { file.Delete(); } catch { /* best effort */ }
+                }
+            }
+            catch
+            {
+                // 清理失败不影响安装。
+            }
         }
 
         // programdata 布局（旧版部署方式）也一并清理，避免残留项让 AD 加载到旧副本。

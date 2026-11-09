@@ -118,11 +118,43 @@ function altiumRunning() {
   return (result.stdout || '').toUpperCase().includes('X2.EXE');
 }
 
+const BACKUP_KEEP = 3; // 每个文件只保留最近 N 份备份
+
 function backupExisting(targetFile) {
   if (!fs.existsSync(targetFile)) return null;
   const backup = targetFile + '.bak-' + Date.now();
   fs.copyFileSync(targetFile, backup);
+  // copyFile 会保留源文件的修改时间，统一改成当前时间，清理时才能按新旧排序。
+  try {
+    const now = new Date();
+    fs.utimesSync(backup, now, now);
+  } catch {
+    // 时间戳修正失败不影响部署。
+  }
+  pruneBackups(targetFile);
   return backup;
+}
+
+// 旧的部署会累积几百个 .bak-*；每次备份后按修改时间只留最新几份。
+function pruneBackups(targetFile) {
+  const dir = path.dirname(targetFile);
+  const prefix = path.basename(targetFile) + '.bak-';
+  try {
+    const backups = fs.readdirSync(dir)
+      .filter(name => name.startsWith(prefix))
+      .map(name => {
+        const full = path.join(dir, name);
+        try { return { full, time: fs.statSync(full).mtimeMs }; } catch { return null; }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.time - a.time);
+
+    for (const stale of backups.slice(BACKUP_KEEP)) {
+      try { fs.rmSync(stale.full, { force: true }); } catch { /* best effort */ }
+    }
+  } catch {
+    // 清理失败不影响部署。
+  }
 }
 
 function updateRegistry(registryPath, extensionPath) {
