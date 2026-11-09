@@ -430,7 +430,7 @@ namespace LcscStudio
             _resetViewButton.Font = Theme.SmallFont;
             _resetViewButton.AutoSize = false;
             _resetViewButton.Size = new Size(26, 26);
-            _resetViewButton.Paint += (s, e) => DrawExpandIcon(e.Graphics, _resetViewButton.ClientRectangle);
+            _resetViewButton.Paint += (s, e) => DrawResetIcon(e.Graphics, _resetViewButton.ClientRectangle);
             _zoomOutButton.Click += (s, e) => ZoomActive(-1);
             _zoomInButton.Click += (s, e) => ZoomActive(1);
             _resetViewButton.Click += (s, e) => ResetActiveView();
@@ -687,29 +687,30 @@ namespace LcscStudio
             if (canvas != null) canvas.ResetView();
         }
 
-        // 重置按钮图标：四个角向外的斜箭头，和常见“适应窗口”图标一致。
-        private static void DrawExpandIcon(Graphics g, Rectangle bounds)
+        // 重置按钮图标：逆时针回转箭头（↺），和常见“恢复视图”图标一致。
+        private static void DrawResetIcon(Graphics g, Rectangle bounds)
         {
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             var cx = bounds.Left + bounds.Width / 2f;
             var cy = bounds.Top + bounds.Height / 2f;
-            const float reach = 7.5f;
+            const float radius = 6.5f;
             using (var pen = new Pen(Theme.Text, 1.4f))
             {
                 pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
                 pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                for (var sx = -1; sx <= 1; sx += 2)
-                {
-                    for (var sy = -1; sy <= 1; sy += 2)
-                    {
-                        float x = cx + sx * reach;
-                        float y = cy + sy * reach;
-                        g.DrawLine(pen, cx, cy, x, y);
-                        g.DrawLine(pen, x, y, x - sx * 3.6f, y);
-                        g.DrawLine(pen, x, y, x, y - sy * 3.6f);
-                    }
-                }
+                // 从左上缺口起逆时针画一整圈，缺口留在左上。
+                g.DrawArc(pen, cx - radius, cy - radius, radius * 2, radius * 2, 200f, -290f);
             }
+            // 箭头在弧线终点（正上方）：实心三角保证左右对称，指向左（逆时针）。
+            var tip = new PointF(cx - 2.4f, cy - radius);
+            var arrow = new[]
+            {
+                tip,
+                new PointF(cx + 2f, cy - radius - 2.4f),
+                new PointF(cx + 2f, cy - radius + 2.4f),
+            };
+            using (var brush = new SolidBrush(Theme.Text))
+                g.FillPolygon(brush, arrow);
         }
 
         private void PlaceViewBar(Panel host)
@@ -1160,6 +1161,12 @@ namespace LcscStudio
         }
 
         // 参数页内容：立创商品参数（属性/参数值）在前，其次是 EasyEDA 字段。
+        // 这几个字段在标题栏或别处已有，参数页不再重复展示。
+        private static readonly HashSet<string> HiddenParameterKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Package", "EasyEDA UUID", "Supplier", "Supplier Part",
+        };
+
         private void FillParameters(LcscPart part, List<KeyValuePair<string, string>> attributes)
         {
             _paramList.BeginUpdate();
@@ -1174,7 +1181,10 @@ namespace LcscStudio
                 if (part != null)
                 {
                     foreach (var pair in part.Parameters)
+                    {
+                        if (HiddenParameterKeys.Contains(pair.Key)) continue;
                         AddParameterRow(pair.Key, pair.Value);
+                    }
                 }
                 if (_paramList.Items.Count == 0)
                     AddParameterRow("提示", part == null ? "选中器件后显示参数" : "该器件没有参数记录");

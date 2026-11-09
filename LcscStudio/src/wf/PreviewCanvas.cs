@@ -336,6 +336,7 @@ namespace LcscStudio
             using (var nameBrush = new SolidBrush(Theme.Accent))
             using (var numFont = new Font("Tahoma", Math.Max(6f, (float)(0.8 * scale * 0.55))))
             {
+                var centerPt = Map(cx, cy);
                 foreach (var pin in _symbol.Pins)
                 {
                     var len = pin.Length;
@@ -352,13 +353,46 @@ namespace LcscStudio
                     g.DrawLine(pinPen, start, connection);
                     g.FillEllipse(dot, connection.X - 2, connection.Y - 2, 4, 4);
 
+                    var midX = (start.X + connection.X) / 2f;
+                    var midY = (start.Y + connection.Y) / 2f;
+                    var vertical = Math.Abs(connection.Y - start.Y) > Math.Abs(connection.X - start.X);
+
+                    // 引脚号贴着引脚线外侧；竖直引脚旋转 90°，否则会在器件边缘挤成一排。
                     if (pin.ShowNumber)
-                        g.DrawString(pin.Number, numFont, numBrush,
-                            (start.X + connection.X) / 2, (start.Y + connection.Y) / 2 - 12);
-                    if (pin.ShowName)
-                        g.DrawString(pin.Name, numFont, nameBrush, start.X, start.Y - 12);
+                    {
+                        if (vertical)
+                            DrawCenteredText(g, pin.Number, numFont, numBrush, midX - 6, midY, -90);
+                        else
+                            DrawCenteredText(g, pin.Number, numFont, numBrush, midX, midY - 8, 0);
+                    }
+
+                    // 引脚名放在器件体内部，沿引脚方向排列，避免相邻引脚的名字互相覆盖。
+                    if (pin.ShowName && !string.IsNullOrEmpty(pin.Name))
+                    {
+                        var textSize = g.MeasureString(pin.Name, numFont);
+                        var ix = centerPt.X - start.X;
+                        var iy = centerPt.Y - start.Y;
+                        var ilen = (float)Math.Sqrt(ix * ix + iy * iy);
+                        if (ilen < 1f) { ix = 0; iy = 1; ilen = 1; }
+                        var offset = 4 + textSize.Width / 2f;
+                        DrawCenteredText(g, pin.Name, numFont, nameBrush,
+                            start.X + ix / ilen * offset,
+                            start.Y + iy / ilen * offset,
+                            vertical ? -90 : 0);
+                    }
                 }
             }
+        }
+
+        private static void DrawCenteredText(Graphics g, string text, Font font, Brush brush,
+            float x, float y, float angle)
+        {
+            var size = g.MeasureString(text, font);
+            var state = g.Save();
+            g.TranslateTransform(x, y);
+            g.RotateTransform(angle);
+            g.DrawString(text, font, brush, -size.Width / 2f, -size.Height / 2f);
+            g.Restore(state);
         }
 
         private void DrawArc(Graphics g, EeSymShape shape,
