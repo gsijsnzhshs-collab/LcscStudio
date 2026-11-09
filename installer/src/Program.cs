@@ -87,7 +87,7 @@ namespace LcscSetup
             {
                 Write(options, "ERROR: " + ex.Message);
                 if (options == null || options.Mode == "ui")
-                    MessageBox.Show(ex.Message, "立创选料安装器", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(ex.Message, "LCSC ADesignK 安装器", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return 1;
             }
         }
@@ -95,7 +95,7 @@ namespace LcscSetup
         private static int RunCommandLine(Options options)
         {
             var text = new StringBuilder();
-            text.AppendLine("立创选料 Altium 插件安装器 " + Payload.Info.Version);
+            text.AppendLine("LCSC ADesignK · Altium 插件安装器 " + Payload.Info.Version);
             text.AppendLine("内置构建 " + Payload.Info.ShortHash + "   " + Payload.Info.Built);
             text.AppendLine();
 
@@ -162,7 +162,7 @@ namespace LcscSetup
         private static string Help()
         {
             return string.Join(Environment.NewLine,
-                "立创选料 Altium 插件安装器 " + Payload.Info.Version,
+                "LCSC ADesignK · Altium 插件安装器 " + Payload.Info.Version,
                 "",
                 "无参数                  打开图形界面",
                 "--list                  列出检测到的 Altium Designer",
@@ -176,3 +176,4 @@ namespace LcscSetup
         }
     }
 }
+

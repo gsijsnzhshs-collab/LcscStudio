@@ -36,7 +36,7 @@ namespace LcscSetup
 
         public SetupForm()
         {
-            Text = "立创选料 · Altium 插件安装器";
+            Text = "LCSC ADesignK · Altium 插件安装器";
             ClientSize = new Size(820, 660);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -50,7 +50,7 @@ namespace LcscSetup
 
             _title = new Label
             {
-                Text = "立创选料 · Altium 插件安装器",
+                Text = "LCSC ADesignK · Altium 插件安装器",
                 AutoSize = true,
                 Font = new Font(Font.FontFamily, 14F, FontStyle.Bold),
                 ForeColor = TextColor,
@@ -309,7 +309,7 @@ namespace LcscSetup
                 {
                     MessageBox.Show(this,
                         "这个目录不像 Altium 的安装目录。\n请选择包含 X2.EXE 的上一级下的 System 目录。",
-                        "立创选料安装器", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        "LCSC ADesignK 安装器", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
@@ -346,7 +346,7 @@ namespace LcscSetup
 
             if (Installer.AltiumRunning(out var runningDetail))
             {
-                MessageBox.Show(this, runningDetail, "立创选料安装器",
+                MessageBox.Show(this, runningDetail, "LCSC ADesignK 安装器",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 SetStatus(runningDetail, true);
                 return;
@@ -407,12 +407,13 @@ namespace LcscSetup
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "提权失败：" + ex.Message, "立创选料安装器",
+                MessageBox.Show(this, "提权失败：" + ex.Message, "LCSC ADesignK 安装器",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
         }
     }
 }
+
 
 

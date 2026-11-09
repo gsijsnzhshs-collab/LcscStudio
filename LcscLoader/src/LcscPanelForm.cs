@@ -13,7 +13,7 @@ namespace LcscLoader
     public sealed class LcscPanelForm : ServerPanelForm, IServerPanelInfo
     {
         internal const string PanelName = "LCSCLoader";
-        internal const string PanelCaption = "立创选料";
+        internal const string PanelCaption = "LCSC ADesignK";
 
         private Size _lastSize;
         private readonly Timer _fitTimer;

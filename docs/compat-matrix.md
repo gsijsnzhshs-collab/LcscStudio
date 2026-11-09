@@ -16,7 +16,7 @@
 | PCB Tools 菜单出现 | PASS（第 2 项） | 待测 | 未执行 | 未执行 |
 | 原理图库 Tools 菜单出现 | PASS（第 3 项） | 待测 | 未执行 | 未执行 |
 | PCB 库 Tools 菜单出现 | PASS（第 4 项） | 待测 | 未执行 | 未执行 |
-| 菜单命令打开「立创选料」停靠面板 | PASS | 待测 | 未执行 | 未执行 |
+| 菜单命令打开「LCSC ADesignK」停靠面板 | PASS | 待测 | 未执行 | 未执行 |
 | 搜索（`2SC1623` / `C269701`） | PASS | 待测 | 未执行 | 未执行 |
 | 符号 / 封装 / 3D 预览 | PASS | 待测 | 未执行 | 未执行 |
 | 单件导入 | PASS | 待测 | 未执行 | 未执行 |
@@ -60,7 +60,7 @@ verdict: OK
 - 四种编辑器都出现，说明 `.rcs` 里的四个 `TargetID`
   （`MNSchematic_Tools10`、`MNSchematic_SchLibMenuTools10`、`MNPCB_Tools10`、`MNPCBLib_Tools10`）
   在 AD20 上全部有效，`InsertType='After'` 的插入位置也正常。
-- 点击原理图中的该菜单项 → 右侧「立创选料」停靠面板出现（`Trae审核/t52-menu-command.png`）。
+- 点击原理图中的该菜单项 → 右侧「LCSC ADesignK」停靠面板出现（`Trae审核/t52-menu-command.png`）。
 
 ### 2.3 重启后的面板布局
 
@@ -77,7 +77,7 @@ verdict: OK
 2. `System` 下 `LcscLoader.dll` / `LCSCLoader.Ins` / `LCSCLoader.rcs` 三个文件消失
    （仅剩历史 `.bak-*`）。
 3. `ExtensionsRegistry.xml` 中无 `LCSCLoader` 项。
-4. 启动 AD（PcbLib）：窗口树中已无「立创选料」窗口；Tools 菜单不再有
+4. 启动 AD（PcbLib）：窗口树中已无「LCSC ADesignK」窗口；Tools 菜单不再有
    `LCSC Component Import...`（`Trae审核/t52-pcblib-uninstalled.png`）。
 5. 重新部署 + verify-deploy：`verdict: OK`。
 
@@ -146,7 +146,7 @@ verdict: OK
    **没有这三行 = DLL 没被加载**，后续菜单检查无意义。
 2. 四个编辑器（SchDoc / PcbDoc / SchLib / PcbLib）的 Tools 菜单是否出现
    `LCSC Component Import...`，记录它是第几项。
-3. 点击菜单项，右侧「立创选料」面板是否出现。
+3. 点击菜单项，右侧「LCSC ADesignK」面板是否出现。
 4. 搜索 `2SC1623`，选择一条，符号 / 封装 / 3D 三个页签是否都能预览。
 5. 单件导入一次（目标库建议指向临时目录，别写生产库）。
 6. 多选 3 条批量导入，观察进度条推进与「取消」按钮；再取消一次。
@@ -216,3 +216,4 @@ node LcscLoader\deploy.js --target system --uninstall
 
 > 自动化注意：AD 的自定义菜单不支持 UIA 的 `ExpandCollapse`（状态始终 Collapsed），
 > 必须用真实鼠标点击；点击前确认没有其它置顶窗口遮挡菜单栏。
+
