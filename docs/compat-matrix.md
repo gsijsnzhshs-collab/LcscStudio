@@ -193,6 +193,10 @@ verdict: OK
 ## 5. 复现命令
 
 ```powershell
+# 一键安装器（内嵌插件产物，自动识别 AD 版本与路径，可安装/卸载）
+node installer\build.js
+installer\bin\LcscSetup.exe
+
 # 构建 + 部署 + 校验（多版本共存时加 --ad-version）
 node LcscLoader\build.js
 node LcscLoader\deploy.js --target system
