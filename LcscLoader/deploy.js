@@ -3,8 +3,11 @@
 // Run from an elevated shell, with Altium Designer closed.
 //
 // Usage:
-//   node deploy.js [--target auto|system|programdata] [--sdk-dir <dir>] [--ad-version <20|24|25>]
-//                  [--uninstall] [--dry-run] [--force]
+//   node deploy.js [--target auto|system|programdata] [--sdk-dir <dir>] [--ad-version <20|22|24|25>]
+//                  [--target-dir <AD System dir>] [--uninstall] [--dry-run] [--force]
+//
+// --target-dir skips SDK auto-detection and installs into the given directory, which is
+// how a build made on one machine is deployed to another AD installation.
 //
 // Layouts:
 //   system      - copy beside the AD binaries (this machine loads D:\AD\AD20\System)
@@ -149,24 +152,32 @@ function main() {
   if (!deployTarget.LAYOUTS.includes(layout)) {
     throw new Error('--target must be one of: ' + deployTarget.LAYOUTS.join(', '));
   }
+  const explicitDir = flagValue('--target-dir', null);
 
   let sdk = null;
   try {
     sdk = adSdk.resolveSdkDir(cli);
   } catch (error) {
-    if (layout === 'programdata') {
+    if (layout === 'programdata' || explicitDir) {
       console.warn('warning: no SDK detected (' + error.message.split('\n')[0] + ')');
     } else {
       throw error;
     }
   }
 
-  const target = deployTarget.resolveTarget({
-    layout,
-    sdk,
-    adVersion: cli.adVersion,
-    preferSystem: true,
-  });
+  let target;
+  if (explicitDir) {
+    const dir = path.resolve(explicitDir);
+    if (!fs.existsSync(dir)) throw new Error('--target-dir does not exist: ' + dir);
+    target = { layout: 'system', dir, registry: null, sdk };
+  } else {
+    target = deployTarget.resolveTarget({
+      layout,
+      sdk,
+      adVersion: cli.adVersion,
+      preferSystem: true,
+    });
+  }
 
   console.log('layout: ' + target.layout);
   console.log('target: ' + target.dir);

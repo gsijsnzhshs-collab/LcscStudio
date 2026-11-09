@@ -21,7 +21,7 @@ function parseArgs(argv) {
       args.sdkDir = a.slice('--sdk-dir='.length);
     } else if (a === '--ad-version') {
       args.adVersion = argv[++i] || null;
-      if (!args.adVersion) throw new Error('--ad-version requires a value (e.g. 20, 24, 25)');
+      if (!args.adVersion) throw new Error('--ad-version requires a value (e.g. 20, 22, 24, 25)');
     } else if (a.startsWith('--ad-version=')) {
       args.adVersion = a.slice('--ad-version='.length);
     } else {
@@ -32,7 +32,8 @@ function parseArgs(argv) {
 }
 
 function versionFromPath(dir) {
-  const m = dir.match(/[\\/](?:AD|Altium Designer)(\d{2})(?:[\\/]|$)/i);
+  // Matches AD20, AD22, "Altium Designer 22", "Altium Designer-22" ...
+  const m = dir.match(/[\\/](?:AD|Altium Designer)[ _-]?(\d{2})(?:[\\/]|$)/i);
   return m ? m[1] : null;
 }
 
@@ -216,7 +217,7 @@ function resolveSdkDir(opts = {}) {
 
   throw new Error(
     'Multiple AD installations found' + (opts.adVersion ? ' for AD' + opts.adVersion : '') +
-    '. Pick one with --sdk-dir <dir> or --ad-version <20|24|25>.\nCandidates:\n' + describe(filtered)
+    '. Pick one with --sdk-dir <dir> or --ad-version <20|22|24|25>.\nCandidates:\n' + describe(filtered)
   );
 }
 

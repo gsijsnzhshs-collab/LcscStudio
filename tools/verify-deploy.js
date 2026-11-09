@@ -2,7 +2,8 @@
 // Checks that what Altium Designer will actually load matches the current build output.
 //
 // Usage: node tools/verify-deploy.js [--target auto|system|programdata]
-//                                    [--sdk-dir <dir>] [--ad-version <20|24|25>]
+//                                    [--sdk-dir <dir>] [--ad-version <20|22|24|25>]
+//                                    [--target-dir <AD System dir>]
 
 const fs = require('fs');
 const path = require('path');
@@ -28,6 +29,7 @@ function flagValue(args, name, fallback) {
 function main() {
   const cli = adSdk.parseArgs(process.argv.slice(2));
   const layout = flagValue(cli.rest, '--target', 'auto');
+  const explicitDir = flagValue(cli.rest, '--target-dir', null);
 
   const expectedDll = path.join(projectRoot, 'bin', 'LcscLoader.dll');
   if (!fs.existsSync(expectedDll)) {
@@ -49,16 +51,23 @@ function main() {
   try {
     sdk = adSdk.resolveSdkDir(cli);
   } catch (error) {
-    if (layout !== 'programdata') throw error;
+    if (layout !== 'programdata' && !explicitDir) throw error;
     console.warn('warning: no SDK detected (' + error.message.split('\n')[0] + ')');
   }
 
-  const target = deployTarget.resolveTarget({
-    layout,
-    sdk,
-    adVersion: cli.adVersion,
-    preferSystem: true,
-  });
+  let target;
+  if (explicitDir) {
+    const dir = path.resolve(explicitDir);
+    if (!fs.existsSync(dir)) throw new Error('--target-dir does not exist: ' + dir);
+    target = { layout: 'system', dir, registry: null, sdk };
+  } else {
+    target = deployTarget.resolveTarget({
+      layout,
+      sdk,
+      adVersion: cli.adVersion,
+      preferSystem: true,
+    });
+  }
 
   console.log('expected: ' + path.relative(root, expectedDll) + '  ' + expected.dll);
   if (buildInfo) console.log('build-info: ' + buildInfo.builtAtUtc + '  commit ' +

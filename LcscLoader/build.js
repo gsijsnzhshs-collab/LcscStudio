@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Builds LcscLoader.dll against a resolved Altium Designer SDK.
-// Usage: node build.js [--sdk-dir <dir>] [--ad-version <20|24|25>]
+// Usage: node build.js [--sdk-dir <dir>] [--ad-version <20|22|24|25>]
 // Resolution order: --sdk-dir > AD_SDK_DIR > auto-detection. See tools/ad-sdk.js.
 
 const { spawnSync } = require('child_process');
