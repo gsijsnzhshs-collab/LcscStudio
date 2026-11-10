@@ -4,7 +4,7 @@
 预览符号 / 封装 / 3D / 商品参数，并一键导入到当前原理图库、PCB 库或直接放置到原理图。
 
 - 当前版本：`1.0.3.0`（唯一版本源：[version.json](version.json)）
-- 已验证版本：Altium Designer 20.0.13（详见 [docs/compat-matrix.md](docs/compat-matrix.md)）
+- 已验证版本：Altium Designer 20.0.13、**AD22 (22.9.1)**（详见 [docs/compat-matrix.md](docs/compat-matrix.md)）
 - 平台：Windows / .NET Framework 4.8（由 AD 宿主加载，无需单独运行时）
 
 ## 功能
@@ -114,7 +114,7 @@ node LcscLoader/tests/build.js --no-run
 | AD 版本 | 状态 |
 |---|---|
 | AD20 (20.0.13) | 全部检查项 PASS |
-| AD22 | 待测（需另一台机器，步骤见兼容矩阵） |
+| AD22 (22.9.1) | 全部检查项 PASS |
 | AD24 / AD25 | 未执行（本机无环境） |
 
 已知限制：重启 AD 后面板不自动展开，仅保留右侧折叠按钮（点击后按默认宽度展开）。

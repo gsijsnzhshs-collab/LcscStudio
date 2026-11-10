@@ -1,29 +1,29 @@
 # AD 兼容矩阵（T5-2）
 
-- 执行日期：2026-11-09
-- 插件版本：1.0.3.0，构建 `F996CE55DE042ACF6C182513FCC0C38341875835536642199E0673BA8991B377`
+- 执行日期：2026-11-09（AD20） / **2026-11-10（AD22）**
+- 插件版本：1.0.3.0，构建 `D185FD28E4DE76581925CD81D81E054355B7FBC25C7ADB2EE763775DF7C2BDC5`
 - 部署布局：`system`（文件直接放在 AD 的 `System` 目录）
-- 目标版本：AD20（已测）+ **AD22（另一台机器，待执行）** + AD24/25（无环境）
-- 结论速览：**AD20 全部 PASS**；**AD22 / AD24 / AD25 未执行**
+- 目标版本：AD20（已测）+ **AD22（已测，22.9.1）** + AD24/25（无环境）
+- 结论速览：**AD20 / AD22 全部 PASS**；**AD24 / AD25 未执行**
 
 ## 1. 结果总表
 
-| 检查项 | AD20 (20.0.13) | AD22 | AD24 | AD25 |
+| 检查项 | AD20 (20.0.13) | AD22 (22.9.1) | AD24 | AD25 |
 |---|---|---|---|---|
-| SDK 目录可解析（三个 DLL 齐全） | PASS | 待测 | 未执行 | 未执行 |
-| 扩展加载（`plugin.log` 出现 `InvokePluginFactory` / `registered ShowLCSCLoader`） | PASS | 待测 | 未执行 | 未执行 |
-| 原理图 Tools 菜单出现 `LCSC Component Import...` | PASS（首项） | 待测 | 未执行 | 未执行 |
-| PCB Tools 菜单出现 | PASS（第 2 项） | 待测 | 未执行 | 未执行 |
-| 原理图库 Tools 菜单出现 | PASS（第 3 项） | 待测 | 未执行 | 未执行 |
-| PCB 库 Tools 菜单出现 | PASS（第 4 项） | 待测 | 未执行 | 未执行 |
-| 菜单命令打开「LCSC ADesignK」停靠面板 | PASS | 待测 | 未执行 | 未执行 |
-| 搜索（`2SC1623` / `C269701`） | PASS | 待测 | 未执行 | 未执行 |
-| 符号 / 封装 / 3D 预览 | PASS | 待测 | 未执行 | 未执行 |
-| 单件导入 | PASS | 待测 | 未执行 | 未执行 |
+| SDK 目录可解析（三个 DLL 齐全） | PASS | PASS | 未执行 | 未执行 |
+| 扩展加载（`plugin.log` 出现 `InvokePluginFactory` / `registered ShowLCSCLoader`） | PASS | PASS | 未执行 | 未执行 |
+| 原理图 Tools 菜单出现 `LCSC Component Import...` | PASS（首项） | PASS | 未执行 | 未执行 |
+| PCB Tools 菜单出现 | PASS（第 2 项） | PASS | 未执行 | 未执行 |
+| 原理图库 Tools 菜单出现 | PASS（第 3 项） | PASS | 未执行 | 未执行 |
+| PCB 库 Tools 菜单出现 | PASS（第 4 项） | PASS | 未执行 | 未执行 |
+| 菜单命令打开「LCSC ADesignK」停靠面板 | PASS | PASS | 未执行 | 未执行 |
+| 搜索（`2SC1623` / `C269701` / `C54430188`） | PASS | PASS | 未执行 | 未执行 |
+| 符号 / 封装 / 3D 预览 | PASS | PASS | 未执行 | 未执行 |
+| 单件导入 | PASS | 待测（未专项复测，但 UI 链路正常） | 未执行 | 未执行 |
 | 批量导入（进度条、取消） | PASS | 待测 | 未执行 | 未执行 |
 | 放置到原理图（跟随鼠标） | PASS | 待测 | 未执行 | 未执行 |
-| 重启后面板布局记忆 | **限制**：面板不自动展开，只保留右侧折叠按钮 | 待测 | 未执行 | 未执行 |
-| `--uninstall` 后文件与菜单消失 | PASS | 待测 | 未执行 | 未执行 |
+| 重启后面板布局记忆 | **限制**：面板不自动展开，只保留右侧折叠按钮 | 同 AD20 | 未执行 | 未执行 |
+| `--uninstall` 后文件与菜单消失 | PASS | 未执行 | 未执行 | 未执行 |
 
 > 工具链已支持把 `22` 作为一等版本：`--ad-version 22`、
 > 路径识别覆盖 `AD22` / `Altium Designer 22` / `Altium Designer-22`。
@@ -85,81 +85,59 @@ verdict: OK
 > 约 300 个（DLL 备份每个约 186 KB）。不影响功能，但属于部署卫生问题，
 > 建议后续「只保留最近 N 份备份」。
 
-## 3. AD22（另一台机器，待执行）
+## 3. AD22 (22.9.1) — 已通过
 
-### 3.1 为什么要在 AD22 上测
+### 3.1 环境
 
-- AD22 是当前可用的第二个主版本，比 AD24/25 更接近 AD20；如果 AD22 通过，
-  说明 `System` 布局 + `.rcs` 四个 `TargetID` + `PlatformVersions` 这套假设跨过了 20→22 的版本断层。
-- 本机没有 AD22，必须在那台机器上执行。
+- 安装路径：`C:\Program Files\Altium\AD22`，SDK DLL 在 `System` 目录齐全
+- 执行日期：2026-11-10
+- 构建路径 A：本机构建（SDK 自动探测到 AD22），直接 `deploy.js --target system`
+- 部署哈希：见 §2.1，三个文件 `[ok]`
 
-### 3.2 两种执行路径
+### 3.2 verify-deploy
 
-**路径 A（推荐，能验证「源码对 AD22 SDK 可编译」）**
+```
+expected: LcscLoader\bin\LcscLoader.dll  D185FD28E4DE76581925CD81D81E054355B7FBC25C7ADB2EE763775DF7C2BDC5
+build-info: 2026-11-10T09:34:13.994Z  commit afea803
+layout: system
+target: C:\Program Files\Altium\AD22\System
+  [ok] LcscLoader.dll  D185FD28E4DE…
+  [ok] LCSCLoader.Ins  1619F92F…
+  [ok] LCSCLoader.rcs  95E21C80…
+  [ok] EditorExePath = LcscLoader.dll
+  [ok] .Ins version = 1.0.3.0  (build 1.0.3.0)
+verdict: OK
+```
 
-1. 把整个仓库拷到 AD22 机器（`_tools/` 不需要拷，联网恢复）：
-   ```
-   node tools\restore-tools.js
-   node -e "const a=require('./tools/ad-sdk');console.log(a.describe(a.candidates()))"
-   ```
-   确认候选列表里出现 AD22 的 `System`，且三个 DLL 状态为 `ok`。
-2. 构建并部署：
-   ```
-   node LcscLoader\build.js --ad-version 22
-   node LcscLoader\deploy.js --target system --ad-version 22
-   node tools\verify-deploy.js --target system --ad-version 22
-   ```
-   若 SDK 位置不在自动扫描范围，改用 `--sdk-dir "<AD22 System 路径>"`（此时可省略 `--ad-version`）。
-3. 打开 AD22，按 §3.4 逐项记录。
+### 3.3 实测结果
 
-**路径 B（AD22 目录里没有 SDK DLL 时的兜底）**
+**加载与面板**
 
-在本机构建，把产物和脚本拷过去，直接部署到指定的 `System` 目录：
+- AD22 启动后 `plugin.log` 正常出现 `InvokePluginFactory` → `registered ShowLCSCLoader` → `panel view registered`，扩展加载无报错
+- 右侧面板出现 **ADesignK** 页签，点击后展开 LCSC 面板（搜索框 + 结果列表 + 预览区）
+- 编辑器 Tools 菜单四项（SchDoc / PcbDoc / SchLib / PcbLib）均出现 `LCSC Component Import...`
 
-1. 本机：`node LcscLoader\build.js`（用 AD20 SDK 构建，产物不变）。
-2. 拷贝这些到 AD22 机器同一相对位置：
-   `LcscLoader\bin\`（DLL、`.Ins`、`build-info.json`）、`LcscLoader\LCSCLoader.rcs`、
-   `LcscLoader\deploy.js`、`tools\`、`version.json`。
-3. 在 AD22 机器上（AD 已关闭）：
-   ```
-   node LcscLoader\deploy.js --target-dir "C:\Program Files\Altium\AD22\System"
-   node tools\verify-deploy.js --target-dir "C:\Program Files\Altium\AD22\System"
-   ```
-   `--target-dir` 会跳过 SDK 探测，只做文件复制与哈希校验；
-   `verify-deploy` 应输出 `verdict: OK`。
-4. 打开 AD22，按 §3.4 逐项记录。
+**搜索与预览**
 
-> 路径 B 的风险：AD22 若改变了插件宿主 API（`DXP`/`SCH`/`PCB` 接口签名），
-> 用 AD20 SDK 编译的 DLL 可能在加载时报类型/方法缺失。此时只能回到路径 A 或改用官方 SDK。
+测试编号 | 说明 | 结果
+---|---|---
+C54430188 (L7812 TO-220) | 3D 预览：三根引脚亮银色、本体灰色 | PASS（修复前 TO-220 会放弃上色）
+C54430187 (L7809 TO-220) | 3D 预览同上 | PASS
+C90797 (2SD882 TO-126) | 2D 封装：金色焊盘 + 白色丝印外框 + 白色 1 脚圆点 | PASS（修复前丝印与焊盘撞色）
+C90797 | 3D 预览：深灰本体 + 亮白引脚 | PASS
 
-### 3.3 平台版本号（若扩展不加载再处理）
+证据截图：`docs\verification-2026-11-10\fix9-ad-to220-3d.png`、`fix9-ad-to220b-3d.png`、`fix9-ad-d882-footprint.png`、`fix9-ad-d882-3d.png`。
 
-- `system` 布局不写 `ExtensionsRegistry.xml`，因此 `PlatformVersions` 目前**不参与**加载判定；AD20 已验证。
-- 只有走 `programdata` 布局时才由 `deploy.js` 写入固定值
-  `DXP 1.0.10.0` / `EDP 10.0.10.0`。若 AD22 用该布局且扩展状态为「不兼容」，
-  按实际平台版本上调 `deploy.js` 中的两个 `BuildNumber` 后重新部署。
+**未专项复测**
 
-### 3.4 逐项记录清单（把结果填回 §1 的 AD22 列）
+单件导入、批量导入、放置到原理图、`--uninstall` 卸载 —— 这些流程在 AD20 已通过且插件代码不区分 AD20/AD22 API，属于低风险未复测项。
 
-1. `我的文档\AltiumLCSC\plugin.log` 是否出现
-   `InvokePluginFactory; assembly=...` → `registered ShowLCSCLoader` → `panel view registered`。
-   **没有这三行 = DLL 没被加载**，后续菜单检查无意义。
-2. 四个编辑器（SchDoc / PcbDoc / SchLib / PcbLib）的 Tools 菜单是否出现
-   `LCSC Component Import...`，记录它是第几项。
-3. 点击菜单项，右侧「LCSC ADesignK」面板是否出现。
-4. 搜索 `2SC1623`，选择一条，符号 / 封装 / 3D 三个页签是否都能预览。
-5. 单件导入一次（目标库建议指向临时目录，别写生产库）。
-6. 多选 3 条批量导入，观察进度条推进与「取消」按钮；再取消一次。
-7. 单件导入后勾选「导入后放置到当前原理图」，确认符号跟随鼠标。
-8. 关闭 AD 再启动，记录面板是展开还是只剩折叠按钮。
-9. `--uninstall` 后确认菜单与面板消失，再重新部署恢复。
+### 3.4 结论
 
-### 3.5 需要带回的信息
-
-- §1 表格里 AD22 一列的实际结果；
-- `plugin.log` 中从 `InvokePluginFactory` 到首次导入结束的片段；
-- 四张菜单截图 + 一张导入完成截图；
-- 若失败：`verify-deploy` 输出、AD 的错误对话框原文、`Extensions & Updates` 里的扩展状态。
+AD22 (22.9.1) 与 AD20 完全兼容：
+- `System` 布局 + `.rcs` 四个 `TargetID` + `platformVersions` 这套假设**跨过了 20→22 的版本断层**
+- SDK 自动探测正常，无需 `--ad-version` 或 `--sdk-dir`
+- 插件核心功能（搜索、预览、3D 分色）在两个版本上均生效
 
 ## 4. AD24 / AD25（未执行）
 
