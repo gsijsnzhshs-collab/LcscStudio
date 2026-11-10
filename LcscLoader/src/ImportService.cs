@@ -244,8 +244,10 @@ namespace LcscLoader
                 }
 
                 // 正常情况下视图从未切换；个别版本若仍切换，收尾时切回原文档。
-                if (currentDoc != null && AdApi.Client.GetCurrentView()?.GetOwnerDocument() != currentDoc)
-                    AdApi.Client.ShowDocument(currentDoc);
+                // 用 RestoreView 吞异常 —— ShowDocument 对 EnsureDocumentHidden 打开的隐藏文档
+                // 在 AD22.0.x 上会抛 RPC_E_SERVERFAULT (0x80010105)，
+                // 异常不能冒泡覆盖已经计入的成功结果。
+                RestoreView(currentDoc);
 
                 if (request.Place && lastLibReference != null)
                 {
@@ -261,11 +263,27 @@ namespace LcscLoader
             }
             finally
             {
-                if (currentDoc != null && AdApi.Client.GetCurrentView()?.GetOwnerDocument() != currentDoc)
-                    AdApi.Client.ShowDocument(currentDoc);
+                RestoreView(currentDoc);
             }
 
             return outcome;
+        }
+
+        // 恢复用户原来的视图。纯界面体验，任何异常都不能影响导入结果：
+        // AD 对 EnsureDocumentHidden 打开的隐藏文档调用 ShowDocument 会抛 RPC_E_SERVERFAULT。
+        private static void RestoreView(IServerDocument currentDoc)
+        {
+            if (currentDoc == null) return;
+            try
+            {
+                var owner = AdApi.Client.GetCurrentView()?.GetOwnerDocument();
+                if (owner != null && ReferenceEquals(owner, currentDoc)) return;
+                AdApi.Client.ShowDocument(currentDoc);
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Write("restore view skipped: " + ex.GetType().Name + " " + ex.Message);
+            }
         }
 
         // 日志里的“字节数”用于确认文件确实落盘，取不到时记 0，不影响导入流程。
