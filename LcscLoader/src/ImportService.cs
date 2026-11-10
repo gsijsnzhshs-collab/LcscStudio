@@ -114,25 +114,33 @@ namespace LcscLoader
                             var modelWatch = new Stopwatch();
                             var bodyAdded = false;
 
+                            PluginLog.Write("import: preProcess start " + itemCaption);
                             AdApi.PcbServer.PreProcess();
+                            PluginLog.Write("import: preProcess ok " + itemCaption);
                             try
                             {
+                                PluginLog.Write("import: footprint start " + itemCaption);
                                 footprint = FootprintImporter.Import(item.Part, request.Overwrite, pcbLib);
+                                PluginLog.Write("import: footprint ok skipped=" + (footprint?.Skipped ?? true) + " " + itemCaption);
                                 if (footprint != null && !footprint.Skipped && item.Model != null)
                                 {
                                     modelWatch.Start();
+                                    PluginLog.Write("import: 3d start " + itemCaption);
                                     bodyAdded = Model3DImporter.AddBody(
                                         footprint, item.Part.Footprint.Model, item.Model);
                                     modelWatch.Stop();
+                                    PluginLog.Write("import: 3d ok bodyAdded=" + bodyAdded + " " + itemCaption);
                                 }
+                                PluginLog.Write("import: savePcb start " + itemCaption);
                                 pcbDoc.DoFileSave("PcbLib");
+                                PluginLog.Write("import: savePcb ok " + itemCaption);
                             }
                             catch (Exception ex)
                             {
                                 ImportLog.Add(string.Format(
                                     "[封装] 失败 库={0} 元件={1} 耗时={2}ms：{3}",
                                     pcbLibName, footprintName, footprintWatch.ElapsedMilliseconds, ex.Message));
-                                PluginLog.Write("import step footprint failed: " + itemCaption + " " + ex);
+                                PluginLog.Write("import step footprint failed: " + itemCaption + "\n" + ex);
                                 throw;
                             }
                             finally
@@ -185,16 +193,20 @@ namespace LcscLoader
                             var symbolWatch = Stopwatch.StartNew();
                             try
                             {
+                                PluginLog.Write("import: symbol start " + itemCaption);
                                 SymbolImporter.Import(item.Part, schLib, request.PcbLibPath,
                                     footprint?.PatternName, request.Overwrite);
+                                PluginLog.Write("import: symbol ok " + itemCaption);
+                                PluginLog.Write("import: saveSch start " + itemCaption);
                                 schDoc.DoFileSave("SchLib");
+                                PluginLog.Write("import: saveSch ok " + itemCaption);
                             }
                             catch (Exception ex)
                             {
                                 ImportLog.Add(string.Format(
                                     "[符号] 失败 库={0} 元件={1} 耗时={2}ms：{3}",
                                     schLibName, libReference, symbolWatch.ElapsedMilliseconds, ex.Message));
-                                PluginLog.Write("import step symbol failed: " + itemCaption + " " + ex);
+                                PluginLog.Write("import step symbol failed: " + itemCaption + "\n" + ex);
                                 throw;
                             }
                             symbolWatch.Stop();
@@ -224,6 +236,7 @@ namespace LcscLoader
                     {
                         outcome.Failed++;
                         ImportLog.Add(item.Part.LcscId + " 导入失败：" + ex.Message);
+                        PluginLog.Write("import outer failed: " + item.Part.LcscId + "\n" + ex);
                     }
 
                     progress?.Invoke(i + 1, total);

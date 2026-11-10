@@ -70,6 +70,7 @@ namespace LcscLoader
                         request.Headers.TryAddWithoutValidation("Origin", host);
                         using (var response = await Client.SendAsync(request, cancellationToken).ConfigureAwait(false))
                         {
+                            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                             if (!response.IsSuccessStatusCode)
                             {
                                 last = (int)response.StatusCode == 404
@@ -77,7 +78,29 @@ namespace LcscLoader
                                     : new EeNetworkError(string.Format("接口返回 HTTP {0}", (int)response.StatusCode));
                                 continue;
                             }
-                            return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                            // easyeda.com / lceda.cn 常在 HTTP 200 里塞 success:false + code:404 表示"查无此元件"
+                            try
+                            {
+                                var root = Newtonsoft.Json.Linq.JObject.Parse(body);
+                                var ok = (bool?)root["success"];
+                                var code = (int?)root["code"];
+                                if (ok == false && code == 404)
+                                {
+                                    last = (Exception)new EeNotFoundError("未找到器件 " + lcscId.Trim());
+                                    continue;
+                                }
+                                if (ok == false)
+                                {
+                                    var msg = (string)root["message"] ?? "未知错误";
+                                    last = new EeNetworkError(host + " 返回 success=false：" + msg);
+                                    continue;
+                                }
+                            }
+                            catch
+                            {
+                                // 不是 JSON，直接返回
+                            }
+                            return body;
                         }
                     }
                 }
