@@ -2,6 +2,22 @@
 
 本文件记录 LcscLoader 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## v1.0.3.1 — 2026-11-10
+
+EasyEDA API 最近在部分料号上返回 HTTP 200 + `success=false, code=404`（器件下架或索引残留），
+以及 AD22.0.x 上 `ShowDocument` 对隐藏文档抛 `RPC_E_SERVERFAULT` 导致"导入实际成功但面板显示失败"。
+
+### Fixed
+
+- **EasyEDA 详情接口 `success=false` 被误解析**：easyeda.com / lceda.cn 常在 HTTP 200 里塞 `{"success":false,"code":404}` 表示"元件未找到"。旧代码只检查 HTTP status code，把空壳 JSON 当正常数据喂给 EasyEdaParser → 产出空壳 LcscPart → ImportService 带着 null/空值去调 AD COM → 抛 `RPC_E_SERVERFAULT`。现在 GetPartJsonAsync 额外解析 body 的 success/code 字段，`success=false, code=404` 直接抛 `EeNotFoundError`，面板显示"抓取失败：未找到器件 CXXXXXXX"后继续导入下一件
+- **ShowDocument 异常从 finally 冒泡覆盖导入成功**：ImportService 用 `EnsureDocumentHidden()` 以隐藏方式打开 SchLib/PcbLib 目标库，导入结束后用 `IClient.ShowDocument(currentDoc)` 恢复用户原视图。但 AD22.0.x 对这类隐藏文档调用 ShowDocument 会抛 `RPC_E_SERVERFAULT (0x80010105)`，异常从 finally 冒泡后覆盖了已经计入的 `outcome.Imported++`，导致面板显示"导入失败"、但两个库文件实际已正确写入。抽 `RestoreView(IServerDocument)` 独立方法 try/catch 包住 ShowDocument，两处调用点（收尾 + finally）统一替换为 `RestoreView(currentDoc)`，失败只写 PluginLog，绝不冒泡
+
+### Changed
+
+- **ImportService 加细粒度 COM 日志**：PreProcess / FootprintImporter.Import / AddBody / DoFileSave / SymbolImporter.Import 每个 COM 调用前后都写 `PluginLog.Write("import: xxx start/ok <lcscId>")`，异常用 `ex.ToString()` 输出完整堆栈而不是 `ex.Message`。下次再有 AD22.0.2 / 其他 AD 版本的 COM 崩溃，plugin.log 会直接告诉我们具体是哪个调用点
+
+---
+
 ## v1.0.3.0 — 2026-11-10
 
 立创商城器件查找 / 封装导入 / 3D 预览插件，适配 Altium Designer 22。
@@ -24,8 +40,6 @@
 
 - **TO-220 焊死模型**：本体与引脚同材质、厚度贯穿全高时旧逻辑直接放弃上色，现已由外形切片兜底接管
 - **对话框定位**：`Theme.PlaceDialog()` 把对话框限制在 owner 所在显示器工作区内，并避开 Win11 右下角输入法工具栏浮层遮挡
-- **EasyEDA 详情接口 `success=false`**：easyeda.com / lceda.cn 常在 HTTP 200 里返回 `{"success":false,"code":404}` 表示器件未找到（器件下架或索引残留），旧代码把空壳数据当正常 LcscPart 喂给 AD COM → 抛 RPC_E_SERVERFAULT。现在解析 body 后抛 `EeNotFoundError`，面板显示"抓取失败：未找到器件"，继续导入下一件
-- **导入成功误报失败**：`ImportService.ExecuteCoreAsync` 收尾用 `IClient.ShowDocument` 恢复用户原视图，但 `EnsureDocumentHidden` 以隐藏方式打开的 SchLib/PcbLib 文档在 AD22.0.x 上调用 ShowDocument 会抛 `RPC_E_SERVERFAULT (0x80010105)`。异常从 finally 冒泡后覆盖了已经计入的 `outcome.Imported++` → 面板显示"导入失败"，但库文件实际已正确写入。抽 `RestoreView(IServerDocument)` 独立方法吞异常，finally 不再影响导入结果
 
 ### Tech
 
