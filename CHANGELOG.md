@@ -2,6 +2,20 @@
 
 本文件记录 LcscLoader 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## v1.1.0.0 — 2026-11-10
+
+### Added
+
+- **StoragePaths 统一路径入口**：插件 dll 旁边可选放一份 `paths.json`，四个字段（`logDir` / `cacheDir` / `settingsDir` / `libraryDir`）指定自定义根路径；不存在时回退 SpecialFolder 默认值，完全向后兼容
+- **安装器 UI 支持自定义用户数据目录**：SetupForm 新增 CheckBox + TextBox + 浏览按钮；勾选后 Installer 在 AD System 目录写入 paths.json，并在自定义根目录下预创建 `logs/` `cache/` `settings/` `libraries/` 四个子目录
+
+### Changed
+
+- **PluginLog / PartCache / Settings 全部改用 StoragePaths**：`SpecialFolder.MyDocuments\AltiumLCSC`、`LocalApplicationData\LCSCLoader\cache`、`ApplicationData\LCSCLoader` 三处硬编码入口统一改为经 StoragePaths 读取，让一个 paths.json 就能控制所有用户数据落盘位置
+- **Release 包新增 LcscSetup.exe**：GitHub Release 附件除了 DLL/Ins/build-info 外，还包含完整的安装器（内嵌 payload，双击即开 UI）
+
+---
+
 ## v1.0.3.1 — 2026-11-10
 
 EasyEDA API 最近在部分料号上返回 HTTP 200 + `success=false, code=404`（器件下架或索引残留），
