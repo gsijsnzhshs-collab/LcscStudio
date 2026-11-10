@@ -24,6 +24,8 @@
 
 - **TO-220 焊死模型**：本体与引脚同材质、厚度贯穿全高时旧逻辑直接放弃上色，现已由外形切片兜底接管
 - **对话框定位**：`Theme.PlaceDialog()` 把对话框限制在 owner 所在显示器工作区内，并避开 Win11 右下角输入法工具栏浮层遮挡
+- **EasyEDA 详情接口 `success=false`**：easyeda.com / lceda.cn 常在 HTTP 200 里返回 `{"success":false,"code":404}` 表示器件未找到（器件下架或索引残留），旧代码把空壳数据当正常 LcscPart 喂给 AD COM → 抛 RPC_E_SERVERFAULT。现在解析 body 后抛 `EeNotFoundError`，面板显示"抓取失败：未找到器件"，继续导入下一件
+- **导入成功误报失败**：`ImportService.ExecuteCoreAsync` 收尾用 `IClient.ShowDocument` 恢复用户原视图，但 `EnsureDocumentHidden` 以隐藏方式打开的 SchLib/PcbLib 文档在 AD22.0.x 上调用 ShowDocument 会抛 `RPC_E_SERVERFAULT (0x80010105)`。异常从 finally 冒泡后覆盖了已经计入的 `outcome.Imported++` → 面板显示"导入失败"，但库文件实际已正确写入。抽 `RestoreView(IServerDocument)` 独立方法吞异常，finally 不再影响导入结果
 
 ### Tech
 

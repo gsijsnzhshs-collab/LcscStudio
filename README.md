@@ -115,9 +115,14 @@ node LcscLoader/tests/build.js --no-run
 |---|---|
 | AD20 (20.0.13) | 全部检查项 PASS |
 | AD22 (22.9.1) | 全部检查项 PASS |
+| AD22 (22.0.2) | 导入链路 PASS（已修复 ShowDocument RPC_E_SERVERFAULT 误报） |
 | AD24 / AD25 | 未执行（本机无环境） |
 
-已知限制：重启 AD 后面板不自动展开，仅保留右侧折叠按钮（点击后按默认宽度展开）。
+已知限制：
+- 重启 AD 后面板不自动展开，仅保留右侧折叠按钮（点击后按默认宽度展开）
+- easyeda.com 最近对 `/api/products/{lcsc}/components` 返回 **CloudFront 403**（接口限流），只剩 `lceda.cn` 主机部分可用；已下架/索引残留的料号会返回 `success=false, code=404`，插件面板显示"抓取失败：未找到器件"后继续下一件，不影响其他料号
+- `tools/restore-tools.js` 在 Windows PowerShell 5 下解压 `.nupkg` 时 `Expand-Archive` 会因扩展名白名单拒绝，绕过方式：手动用 Python `zipfile` 解压到 `_tools/<name>/` 即可
+
 完整矩阵与复现步骤：[docs/compat-matrix.md](docs/compat-matrix.md)。
 
 ## 说明
