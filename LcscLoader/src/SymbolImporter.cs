@@ -51,6 +51,15 @@ namespace LcscLoader
             component.SetState_CurrentPartID(1);
             component.SetState_DisplayMode(0);
             component.SetState_LibReference(libReference);
+
+            // 多部件器件（如 MCU 的独立电源符号）要建出对应的部件数，
+            // 每个图形/引脚再按 OwnerPartId 挂到各自部件上。
+            var parts = part.SymbolParts.Count > 0
+                ? part.SymbolParts
+                : new List<EeSymbol> { part.Symbol };
+            if (parts.Count > 1)
+                component.SetState_PartCountNoPart0(parts.Count);
+
             var smallFont = AdApi.SchServer.GetState_FontManager()
                 .GetFontID(6, 0, false, false, false, false, "Tahoma");
             var designator = component.GetState_SchDesignator();
@@ -77,15 +86,19 @@ namespace LcscLoader
             }
             component.SetState_ComponentDescription(part.Description);
 
-            var origin = part.Symbol;
-            Func<double, double> x = value => (value - origin.OriginX) * EeUnits.MmPerUnit;
-            Func<double, double> y = value => (origin.OriginY - value) * EeUnits.MmPerUnit;
+            for (var index = 0; index < parts.Count; index++)
+            {
+                var symbol = parts[index];
+                var partId = index + 1;
+                Func<double, double> x = value => (value - symbol.OriginX) * EeUnits.MmPerUnit;
+                Func<double, double> y = value => (symbol.OriginY - value) * EeUnits.MmPerUnit;
 
-            foreach (var shape in part.Symbol.Shapes)
-                AddShape(component, shape, x, y);
+                foreach (var shape in symbol.Shapes)
+                    AddShape(component, shape, x, y, partId);
 
-            AddPins(component, part.Symbol.Pins, x, y);
-            PositionFields(component, part.Symbol, x, y);
+                AddPins(component, symbol.Pins, x, y, partId);
+                if (partId == 1) PositionFields(component, symbol, x, y);
+            }
 
             foreach (var parameter in part.Parameters)
                 AddParameter(component, parameter.Key, parameter.Value);
@@ -97,8 +110,24 @@ namespace LcscLoader
             schLib.SetState_Current_SchComponent(component);
             schLib.GraphicallyInvalidate();
 
-            ImportLog.Add(string.Format("原理图符号：{0}（{1} 个图形，{2} 个引脚）",
-                libReference, part.Symbol.Shapes.Count, part.Symbol.Pins.Count));
+            var shapeCount = 0;
+            var pinCount = 0;
+            foreach (var symbol in parts)
+            {
+                shapeCount += symbol.Shapes.Count;
+                pinCount += symbol.Pins.Count;
+            }
+            ImportLog.Add(string.Format("原理图符号：{0}（{1} 个图形，{2} 个引脚，{3} 个部件）",
+                libReference, shapeCount, pinCount, parts.Count));
+            try
+            {
+                PluginLog.Write(string.Format("symbol imported: {0} adParts={1} sourceParts={2}",
+                    libReference, component.GetState_PartCountNoPart0(), parts.Count));
+            }
+            catch
+            {
+                // 仅用于诊断，取不到部件数不影响导入。
+            }
             return component;
         }
 
@@ -125,31 +154,32 @@ namespace LcscLoader
             ISch_Component component,
             EeSymShape shape,
             Func<double, double> x,
-            Func<double, double> y)
+            Func<double, double> y,
+            int partId)
         {
             try
             {
                 switch (shape.Kind)
                 {
                     case EeSymKind.Rectangle:
-                        AddRectangle(component, shape, x, y);
+                        AddRectangle(component, shape, x, y, partId);
                         break;
                     case EeSymKind.Circle:
                     case EeSymKind.Ellipse:
-                        AddEllipse(component, shape, x, y);
+                        AddEllipse(component, shape, x, y, partId);
                         break;
                     case EeSymKind.Arc:
-                        AddArc(component, shape, x, y);
+                        AddArc(component, shape, x, y, partId);
                         break;
                     case EeSymKind.Polyline:
                     case EeSymKind.Polygon:
-                        AddPoly(component, shape, x, y);
+                        AddPoly(component, shape, x, y, partId);
                         break;
                     case EeSymKind.Path:
-                        AddPath(component, shape, x, y);
+                        AddPath(component, shape, x, y, partId);
                         break;
                     case EeSymKind.Text:
-                        AddLabel(component, shape, x, y);
+                        AddLabel(component, shape, x, y, partId);
                         break;
                 }
             }
@@ -160,7 +190,8 @@ namespace LcscLoader
         }
 
         private static void AddRectangle(
-            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y)
+            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y,
+            int partId)
         {
             var rectangle = AdApi.SchServer.SchObjectFactory(
                 TObjectId.eRectangle, TObjectCreationMode.eCreate_Default) as ISch_Rectangle;
@@ -178,12 +209,13 @@ namespace LcscLoader
             rectangle.SetState_AreaColor(Conv.Color(shape.Fill, Conv.DefaultFill));
             rectangle.SetState_IsSolid(Conv.HasPaint(shape.Fill));
             rectangle.SetState_Transparent(false);
-            SetOwner(rectangle);
+            SetOwner(rectangle, partId);
             component.AddSchObject(rectangle);
         }
 
         private static void AddEllipse(
-            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y)
+            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y,
+            int partId)
         {
             var ellipse = AdApi.SchServer.SchObjectFactory(
                 TObjectId.eEllipse, TObjectCreationMode.eCreate_Default) as ISch_Ellipse;
@@ -197,16 +229,17 @@ namespace LcscLoader
             ellipse.SetState_AreaColor(Conv.Color(shape.Fill, Conv.DefaultFill));
             ellipse.SetState_IsSolid(Conv.HasPaint(shape.Fill));
             ellipse.SetState_Transparent(false);
-            SetOwner(ellipse);
+            SetOwner(ellipse, partId);
             component.AddSchObject(ellipse);
         }
 
         private static void AddArc(
-            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y)
+            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y,
+            int partId)
         {
             if (!SvgPath.TryGetCircularArc(shape.Path, out var arc))
             {
-                AddPath(component, shape, x, y);
+                AddPath(component, shape, x, y, partId);
                 return;
             }
 
@@ -219,7 +252,7 @@ namespace LcscLoader
                     RadiusX = arc.RadiusX, RadiusY = arc.RadiusY,
                     Stroke = shape.Stroke, StrokeWidth = shape.StrokeWidth, Fill = "none",
                 };
-                AddEllipse(component, circle, x, y);
+                AddEllipse(component, circle, x, y, partId);
                 return;
             }
 
@@ -243,22 +276,24 @@ namespace LcscLoader
             altiumArc.SetState_EndAngle(end);
             altiumArc.SetState_LineWidth(SchematicLineWidth(shape.StrokeWidth));
             altiumArc.SetState_Color(Conv.Color(shape.Stroke, Conv.DefaultStroke));
-            SetOwner(altiumArc);
+            SetOwner(altiumArc, partId);
             component.AddSchObject(altiumArc);
         }
 
         private static void AddPoly(
-            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y)
+            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y,
+            int partId)
         {
             var points = Conv.ParseUnitPoints(shape.Points)
                 .Select(p => (X: x(p.X), Y: y(p.Y)))
                 .ToList();
             AddPolyObject(component, shape.Kind == EeSymKind.Polygon, points,
-                shape.Stroke, shape.StrokeWidth, shape.Fill);
+                shape.Stroke, shape.StrokeWidth, shape.Fill, partId);
         }
 
         private static void AddPath(
-            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y)
+            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y,
+            int partId)
         {
             List<SvgSubPath> subPaths;
             try { subPaths = SvgPath.Parse(shape.Path, 0.02); }
@@ -274,7 +309,7 @@ namespace LcscLoader
                 var points = sub.Points.Select(p => (X: x(p.X), Y: y(p.Y))).ToList();
                 var closed = sub.Closed || filled;
                 AddPolyObject(component, closed, points, shape.Stroke, shape.StrokeWidth,
-                    closed && filled ? shape.Fill : "none");
+                    closed && filled ? shape.Fill : "none", partId);
             }
         }
 
@@ -284,7 +319,8 @@ namespace LcscLoader
             List<(double X, double Y)> points,
             string stroke,
             double strokeWidth,
-            string fill)
+            string fill,
+            int partId)
         {
             if (points.Count < 2) return;
             if (closed && points.Count < 3) closed = false;
@@ -295,7 +331,7 @@ namespace LcscLoader
             if (container == null) return;
 
             // 先挂载再写几何：未挂载时 SetState_Vertex 不会保留坐标。
-            SetOwner(container);
+            SetOwner(container, partId);
             component.AddSchObject(container);
 
             // Altium 的顶点索引是 1 基（Delphi 脚本里的 Vertex[1] 起），0 基写入会落空。
@@ -329,7 +365,8 @@ namespace LcscLoader
         }
 
         private static void AddLabel(
-            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y)
+            ISch_Component component, EeSymShape shape, Func<double, double> x, Func<double, double> y,
+            int partId)
         {
             if (string.IsNullOrWhiteSpace(shape.Text)) return;
 
@@ -348,7 +385,7 @@ namespace LcscLoader
             label.SetState_FontId(
                 AdApi.SchServer.GetState_FontManager().GetFontID(size, 0, false, false, false, false, fontName));
 
-            SetOwner(label);
+            SetOwner(label, partId);
             component.AddSchObject(label);
         }
 
@@ -356,7 +393,8 @@ namespace LcscLoader
             ISch_Component component,
             IEnumerable<EePin> pins,
             Func<double, double> x,
-            Func<double, double> y)
+            Func<double, double> y,
+            int partId)
         {
             var fontManager = AdApi.SchServer.GetState_FontManager();
             var fontId = fontManager.GetFontID(5, 0, false, false, false, false, "Tahoma");
@@ -410,7 +448,7 @@ namespace LcscLoader
                     pin.SetState_Designator_FontMode(TPinItemMode.ePinItemMode_Custom);
                     pin.SetState_Designator_CustomFontID(fontId);
 
-                    SetOwner(pin);
+                    SetOwner(pin, partId);
                     component.AddSchObject(pin);
                 }
                 catch (Exception ex)
@@ -575,9 +613,9 @@ namespace LcscLoader
             return new DXP.Point { X = AdApi.MmToCoord(mmX), Y = AdApi.MmToCoord(mmY) };
         }
 
-        private static void SetOwner(ISch_GraphicalObject graphicalObject)
+        private static void SetOwner(ISch_GraphicalObject graphicalObject, int partId)
         {
-            graphicalObject.SetState_OwnerPartId(1);
+            graphicalObject.SetState_OwnerPartId(partId);
             graphicalObject.SetState_OwnerPartDisplayMode(0);
         }
 

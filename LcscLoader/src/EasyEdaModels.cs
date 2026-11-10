@@ -48,6 +48,7 @@ namespace LcscLoader
     {
         public string Name = "";
         public string Prefix = "U?";
+        public int SubPartNo = 1;
         public double OriginX;
         public double OriginY;
         public readonly List<EeSymShape> Shapes = new List<EeSymShape>();
@@ -106,6 +107,8 @@ namespace LcscLoader
         public string ManufacturerPart = "";
         public string SupplierPart = "";
         public EeSymbol Symbol = new EeSymbol();
+        // 多部件器件（如带独立电源符号的 MCU）按 subpart_no 排列，单部件时只含第 1 项。
+        public readonly List<EeSymbol> SymbolParts = new List<EeSymbol>();
         public EeFootprint Footprint = new EeFootprint();
         public readonly List<KeyValuePair<string, string>> Parameters = new List<KeyValuePair<string, string>>();
     }
@@ -156,22 +159,24 @@ namespace LcscLoader
             var symbol = JsonUtil.Obj(ParseDocument(component["dataStr"]));
             var symbolHead = JsonUtil.Obj(symbol["head"]);
             var symbolParams = JsonUtil.Obj(symbolHead["c_para"]);
-            part.Symbol.Name = JsonUtil.Str(symbolParams["name"], part.Title);
-            part.Symbol.Prefix = JsonUtil.Str(symbolParams["pre"], "U?");
-            part.Symbol.OriginX = JsonUtil.Num(symbolHead["x"]);
-            part.Symbol.OriginY = JsonUtil.Num(symbolHead["y"]);
+            part.Symbol = ParseSymbol(symbol, part.Title, "U?");
+            part.SymbolParts.Add(part.Symbol);
             part.Manufacturer = JsonUtil.Str(symbolParams["Manufacturer"]);
             part.ManufacturerPart = JsonUtil.Str(symbolParams["Manufacturer Part"]);
             part.SupplierPart = JsonUtil.Str(symbolParams["Supplier Part"], part.SupplierPart);
 
-            foreach (var token in JsonUtil.Arr(symbol["shape"]))
+            // 多部件器件把每个子部件的符号单独放在 subparts 里；第 1 部件与 dataStr 重复。
+            var subparts = JsonUtil.Arr(component["subparts"]);
+            if (subparts.Count > 1)
             {
-                var raw = token.Type == JTokenType.String ? (string)token : token.ToString();
-                if (string.IsNullOrWhiteSpace(raw)) continue;
-                if (raw.StartsWith("P~", StringComparison.Ordinal))
-                    ParsePin(raw, part.Symbol);
-                else
-                    ParseSymbolShape(raw, part.Symbol);
+                part.SymbolParts.Clear();
+                foreach (var sub in subparts)
+                {
+                    var doc = JsonUtil.Obj(ParseDocument(sub["dataStr"]));
+                    part.SymbolParts.Add(ParseSymbol(doc, part.Title, part.Symbol.Prefix));
+                }
+                part.SymbolParts.Sort((a, b) => a.SubPartNo.CompareTo(b.SubPartNo));
+                part.Symbol = part.SymbolParts[0];
             }
 
             var package = JsonUtil.Obj(component["packageDetail"]);
@@ -319,6 +324,37 @@ namespace LcscLoader
             if (!minimums.TryGetValue(parts[0], out var minimum) || parts.Length >= minimum) return true;
             EeFormatLog.Skip(source, parts[0], parts.Length, raw, "需要至少 " + minimum + " 项");
             return false;
+        }
+
+        private static EeSymbol ParseSymbol(JToken doc, string fallbackName, string fallbackPrefix)
+        {
+            var symbol = new EeSymbol();
+            var head = JsonUtil.Obj(doc["head"]);
+            var pars = JsonUtil.Obj(head["c_para"]);
+            symbol.Name = JsonUtil.Str(pars["name"], fallbackName);
+            symbol.Prefix = CleanPrefix(JsonUtil.Str(pars["pre"], fallbackPrefix));
+            symbol.SubPartNo = (int)JsonUtil.Num(pars["subpart_no"], 1);
+            symbol.OriginX = JsonUtil.Num(head["x"]);
+            symbol.OriginY = JsonUtil.Num(head["y"]);
+
+            foreach (var token in JsonUtil.Arr(doc["shape"]))
+            {
+                var raw = token.Type == JTokenType.String ? (string)token : token.ToString();
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                if (raw.StartsWith("P~", StringComparison.Ordinal))
+                    ParsePin(raw, symbol);
+                else
+                    ParseSymbolShape(raw, symbol);
+            }
+            return symbol;
+        }
+
+        // EasyEDA 多部件位号写成 “U?.2”，AD 的部件后缀由软件生成，这里只保留 “U?”。
+        private static string CleanPrefix(string prefix)
+        {
+            if (string.IsNullOrWhiteSpace(prefix)) return "U?";
+            var match = Regex.Match(prefix, @"^(.*)\.\d+$");
+            return match.Success ? match.Groups[1].Value : prefix;
         }
 
         private static void ParseSymbolShape(string raw, EeSymbol symbol)

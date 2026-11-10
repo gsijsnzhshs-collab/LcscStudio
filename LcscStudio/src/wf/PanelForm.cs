@@ -1135,7 +1135,7 @@ namespace LcscStudio
                 _partTitle.Text = details.Part.Title;
                 _partMeta.Text = details.Part.LcscId + " · " + details.Part.Footprint.Name +
                                  " · " + details.Part.Manufacturer;
-                _symbolCanvas.Symbol = details.Part.Symbol;
+                _symbolCanvas.SetSymbols(details.Part.SymbolParts);
                 _footprintCanvas.Footprint = details.Part.Footprint;
                 FillParameters(details.Part, await attributesTask);
                 _modelHint.Text = details.Part.Footprint.Model == null

@@ -152,12 +152,36 @@ namespace LcscStudio
 
     internal sealed class SymbolCanvas : ZoomCanvas
     {
-        private EeSymbol _symbol;
+        private readonly List<EeSymbol> _symbols = new List<EeSymbol>();
 
         public EeSymbol Symbol
         {
-            get => _symbol;
-            set { _symbol = value; ResetView(); }
+            get { return _symbols.Count > 0 ? _symbols[0] : null; }
+            set
+            {
+                _symbols.Clear();
+                if (value != null) _symbols.Add(value);
+                ResetView();
+            }
+        }
+
+        // 多部件器件（如 MCU 的独立电源符号）按上下顺序全部画出来。
+        public void SetSymbols(IList<EeSymbol> symbols)
+        {
+            _symbols.Clear();
+            if (symbols != null)
+            {
+                foreach (var symbol in symbols)
+                    if (symbol != null) _symbols.Add(symbol);
+            }
+            ResetView();
+        }
+
+        private struct PartLayout
+        {
+            public EeSymbol Symbol;
+            public double OffsetY;
+            public double MinX, MaxX, MinY, MaxY;
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -166,27 +190,90 @@ namespace LcscStudio
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Theme.Canvas);
             DrawGrid(g);
-            if (_symbol == null)
+            if (_symbols.Count == 0)
             {
                 PreviewEmpty.Draw(g, ClientSize, "还没有符号", "搜索型号或编号后在此预览", false);
                 return;
             }
 
-            var originX = _symbol.OriginX;
-            var originY = _symbol.OriginY;
-            double minX = double.MaxValue, minY = double.MaxValue;
-            double maxX = double.MinValue, maxY = double.MinValue;
+            // 每个部件有各自的坐标原点，先分别测量，再按上下顺序堆叠。
+            const double gap = 2.5;
+            var layouts = new List<PartLayout>();
+            var nextTop = 0.0;
+            foreach (var symbol in _symbols)
+            {
+                double minX, maxX, minY, maxY;
+                if (!MeasurePart(symbol, out minX, out maxX, out minY, out maxY)) continue;
+                var offset = layouts.Count == 0 ? 0.0 : nextTop - maxY;
+                layouts.Add(new PartLayout
+                {
+                    Symbol = symbol,
+                    OffsetY = offset,
+                    MinX = minX,
+                    MaxX = maxX,
+                    MinY = minY + offset,
+                    MaxY = maxY + offset,
+                });
+                nextTop = minY + offset - gap;
+            }
+
+            if (layouts.Count == 0)
+            {
+                PreviewEmpty.Draw(g, ClientSize, "该器件没有符号图形", "可以查看封装或换一个器件", false);
+                return;
+            }
+
+            var left = layouts[0].MinX;
+            var right = layouts[0].MaxX;
+            var bottom = layouts[0].MinY;
+            var top = layouts[0].MaxY;
+            foreach (var layout in layouts)
+            {
+                left = Math.Min(left, layout.MinX);
+                right = Math.Max(right, layout.MaxX);
+                bottom = Math.Min(bottom, layout.MinY);
+                top = Math.Max(top, layout.MaxY);
+            }
+
+            const float pad = 14f;
+            var spanX = Math.Max(0.2, right - left);
+            var spanY = Math.Max(0.2, top - bottom);
+            var fit = Math.Min((Width - pad * 2) / spanX, (Height - pad * 2) / spanY);
+            if (fit <= 0 || float.IsInfinity((float)fit)) fit = 1;
+            var scale = fit * ViewZoom;
+
+            var centerX = (left + right) / 2;
+            var centerY = (bottom + top) / 2;
+
+            PointF Map(double x, double y) => new PointF(
+                (float)(Width / 2 + ViewPanX + (x - centerX) * scale),
+                (float)(Height / 2 + ViewPanY - (y - centerY) * scale));
+
+            foreach (var layout in layouts)
+            {
+                var center = Map((layout.MinX + layout.MaxX) / 2, (layout.MinY + layout.MaxY) / 2);
+                DrawPart(g, layout, Map, scale, center);
+            }
+        }
+
+        private static bool MeasurePart(EeSymbol symbol,
+            out double minX, out double maxX, out double minY, out double maxY)
+        {
+            var left = double.MaxValue;
+            var right = double.MinValue;
+            var bottom = double.MaxValue;
+            var top = double.MinValue;
 
             void Add(double x, double y)
             {
-                minX = Math.Min(minX, x); maxX = Math.Max(maxX, x);
-                minY = Math.Min(minY, y); maxY = Math.Max(maxY, y);
+                left = Math.Min(left, x); right = Math.Max(right, x);
+                bottom = Math.Min(bottom, y); top = Math.Max(top, y);
             }
 
-            double MX(double units) => (units - originX) * EeUnits.MmPerUnit;
-            double MY(double units) => (originY - units) * EeUnits.MmPerUnit;
+            double MX(double units) => (units - symbol.OriginX) * EeUnits.MmPerUnit;
+            double MY(double units) => (symbol.OriginY - units) * EeUnits.MmPerUnit;
 
-            foreach (var shape in _symbol.Shapes)
+            foreach (var shape in symbol.Shapes)
             {
                 switch (shape.Kind)
                 {
@@ -225,7 +312,7 @@ namespace LcscStudio
                 }
             }
 
-            foreach (var pin in _symbol.Pins)
+            foreach (var pin in symbol.Pins)
             {
                 var len = pin.Length;
                 double bx = pin.X, by = pin.Y;
@@ -240,26 +327,24 @@ namespace LcscStudio
                 Add(MX(bx), MY(by));
             }
 
-            if (minX > maxX)
-            {
-                PreviewEmpty.Draw(g, ClientSize, "该器件没有符号图形", "可以查看封装或换一个器件", false);
-                return;
-            }
+            minX = left;
+            maxX = right;
+            minY = bottom;
+            maxY = top;
+            return left <= right && bottom <= top;
+        }
 
-            const float pad = 14f;
-            var spanX = Math.Max(0.2, maxX - minX);
-            var spanY = Math.Max(0.2, maxY - minY);
-            var fit = Math.Min((Width - pad * 2) / spanX, (Height - pad * 2) / spanY);
-            if (fit <= 0 || float.IsInfinity((float)fit)) fit = 1;
-            var scale = fit * ViewZoom;
+        private void DrawPart(Graphics g, PartLayout layout, Func<double, double, PointF> map,
+            double scale, PointF centerPt)
+        {
+            var symbol = layout.Symbol;
+            var offset = layout.OffsetY;
 
-            var cx = (minX + maxX) / 2;
-            var cy = (minY + maxY) / 2;
-            PointF Map(double x, double y) => new PointF(
-                (float)(Width / 2 + ViewPanX + (x - cx) * scale),
-                (float)(Height / 2 + ViewPanY - (y - cy) * scale));
+            double MX(double units) => (units - symbol.OriginX) * EeUnits.MmPerUnit;
+            double MY(double units) => (symbol.OriginY - units) * EeUnits.MmPerUnit;
+            PointF Map(double x, double y) => map(x, y + offset);
 
-            foreach (var shape in _symbol.Shapes)
+            foreach (var shape in symbol.Shapes)
             {
                 var color = ParseColor(shape.Stroke, Color.Maroon);
                 var fillColor = ParseColor(shape.Fill, Color.FromArgb(255, 255, 176));
@@ -336,8 +421,7 @@ namespace LcscStudio
             using (var nameBrush = new SolidBrush(Theme.Accent))
             using (var numFont = new Font("Tahoma", Math.Max(6f, (float)(0.8 * scale * 0.55))))
             {
-                var centerPt = Map(cx, cy);
-                foreach (var pin in _symbol.Pins)
+                foreach (var pin in symbol.Pins)
                 {
                     var len = pin.Length;
                     double bx = pin.X, by = pin.Y;
@@ -374,10 +458,10 @@ namespace LcscStudio
                         var iy = centerPt.Y - start.Y;
                         var ilen = (float)Math.Sqrt(ix * ix + iy * iy);
                         if (ilen < 1f) { ix = 0; iy = 1; ilen = 1; }
-                        var offset = 4 + textSize.Width / 2f;
+                        var labelOffset = 4 + textSize.Width / 2f;
                         DrawCenteredText(g, pin.Name, numFont, nameBrush,
-                            start.X + ix / ilen * offset,
-                            start.Y + iy / ilen * offset,
+                            start.X + ix / ilen * labelOffset,
+                            start.Y + iy / ilen * labelOffset,
                             vertical ? -90 : 0);
                     }
                 }
@@ -452,7 +536,7 @@ namespace LcscStudio
         private void DrawGrid(Graphics g)
         {
             const int step = 24;
-            using (var pen = new Pen(_symbol == null ? Theme.CanvasGridIdle : Theme.CanvasGrid))
+            using (var pen = new Pen(_symbols.Count == 0 ? Theme.CanvasGridIdle : Theme.CanvasGrid))
             {
                 for (var x = 0; x < Width; x += step) g.DrawLine(pen, x, 0, x, Height);
                 for (var y = 0; y < Height; y += step) g.DrawLine(pen, 0, y, Width, y);
