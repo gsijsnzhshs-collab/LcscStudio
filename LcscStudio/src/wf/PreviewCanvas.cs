@@ -80,7 +80,7 @@ namespace LcscStudio
             SetStyle(ControlStyles.StandardDoubleClick, true);
         }
 
-        public void ResetView()
+        public virtual void ResetView()
         {
             ViewZoom = 1f;
             ViewPanX = 0f;
@@ -152,7 +152,17 @@ namespace LcscStudio
 
     internal sealed class SymbolCanvas : ZoomCanvas
     {
+        // EasyEDA 符号里引脚名的字高约 6 unit（引脚间距 10 unit），渲染时按同一比例尺换算。
+        private const double PinTextUnits = 6.0;
+
         private readonly List<EeSymbol> _symbols = new List<EeSymbol>();
+
+        // 被截断的引脚名：记录屏幕命中区域，悬停时用 tooltip 给出完整名称。
+        private readonly List<KeyValuePair<RectangleF, string>> _nameHits =
+            new List<KeyValuePair<RectangleF, string>>();
+        private readonly ToolTip _nameTip = new ToolTip();
+        private string _tipText;
+        private bool _namesSuppressed;
 
         public EeSymbol Symbol
         {
@@ -190,6 +200,8 @@ namespace LcscStudio
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Theme.Canvas);
             DrawGrid(g);
+            _nameHits.Clear();
+            _namesSuppressed = false;
             if (_symbols.Count == 0)
             {
                 PreviewEmpty.Draw(g, ClientSize, "还没有符号", "搜索型号或编号后在此预览", false);
@@ -253,6 +265,14 @@ namespace LcscStudio
             {
                 var center = Map((layout.MinX + layout.MaxX) / 2, (layout.MinY + layout.MaxY) / 2);
                 DrawPart(g, layout, Map, scale, center);
+            }
+
+            // 引脚名被隐藏时给一行说明，避免用户以为符号丢了信息。
+            if (_namesSuppressed)
+            {
+                using (var hintBrush = new SolidBrush(Theme.TextFaint))
+                    g.DrawString("引脚名过密，滚轮放大或悬停查看", Theme.LabelFont, hintBrush,
+                        pad, Height - Theme.LabelFont.Height - 8);
             }
         }
 
@@ -332,6 +352,24 @@ namespace LcscStudio
             minY = bottom;
             maxY = top;
             return left <= right && bottom <= top;
+        }
+
+        // 引脚文字的实际可用高度取决于最近两个引脚的距离，而不是画布上的绝对像素。
+        private static double NearestPinPitchUnits(EeSymbol symbol)
+        {
+            var pins = symbol.Pins;
+            var best = double.MaxValue;
+            for (var i = 0; i < pins.Count; i++)
+            {
+                for (var j = i + 1; j < pins.Count; j++)
+                {
+                    var dx = pins[i].X - pins[j].X;
+                    var dy = pins[i].Y - pins[j].Y;
+                    var d = Math.Sqrt(dx * dx + dy * dy);
+                    if (d > 0.001 && d < best) best = d;
+                }
+            }
+            return best == double.MaxValue ? 10.0 : best;
         }
 
         private void DrawPart(Graphics g, PartLayout layout, Func<double, double, PointF> map,
@@ -415,12 +453,32 @@ namespace LcscStudio
                 }
             }
 
+            // 引脚文字必须和几何用同一把比例尺。旧代码是 Math.Max(6f, 0.8*scale*0.55)：
+            // 48 脚 IC fit 到面板后 scale≈4.2px/mm，几何缩到行距 10.7px，字号却被 6pt 下限
+            // 钉在 ~9.6px 行高，相邻两行的长引脚名必然叠字（0603 只有两脚、间距大，看不出来）。
+            // 现在按 EasyEDA 的 6 unit 字高等比缩放，再用最近邻引脚间距的 62% 封顶。
+            var pitchPx = NearestPinPitchUnits(symbol) * EeUnits.MmPerUnit * scale;
+            // 两脚小器件（0603/0402）的引脚间距很大，间距封顶失效：6 unit 字高按 fit 放大后
+            // 比器件体还高，编号就会飘到体外，看起来像"偏移"。再按本部件最小外廓封顶。
+            var spanPx = Math.Min(layout.MaxX - layout.MinX, layout.MaxY - layout.MinY) * scale;
+            var textPx = Math.Min(
+                Math.Min(PinTextUnits * EeUnits.MmPerUnit * scale, pitchPx * 0.62),
+                spanPx * 0.4);
+            var pinTextPx = (float)Math.Max(3.0, textPx);
+
+            // 3~5px 的字形经 GDI+ 栅格化后墨迹接近行距，48 脚器件 fit 到窄面板时会糊成一片。
+            // 这种字号本来也读不出内容，索性不画引脚名，只保留引脚号与悬停提示；放大后自动恢复。
+            var showNames = pinTextPx >= 3.2f;
+            if (!showNames) _namesSuppressed = true;
+
             using (var pinPen = new Pen(Theme.PinInk, Math.Max(1f, (float)(0.18 * scale))))
             using (var dot = new SolidBrush(Theme.PinInk))
             using (var numBrush = new SolidBrush(Theme.TextMuted))
             using (var nameBrush = new SolidBrush(Theme.Accent))
-            using (var numFont = new Font("Tahoma", Math.Max(6f, (float)(0.8 * scale * 0.55))))
+            using (var numFont = new Font("Tahoma", pinTextPx, GraphicsUnit.Pixel))
             {
+                // 引脚号的偏移也随字号走；写死 8px 会在小面板里超过半行距，把编号推到上一行。
+                var numGap = numFont.GetHeight(g) * 0.6f;
                 foreach (var pin in symbol.Pins)
                 {
                     var len = pin.Length;
@@ -445,27 +503,116 @@ namespace LcscStudio
                     if (pin.ShowNumber)
                     {
                         if (vertical)
-                            DrawCenteredText(g, pin.Number, numFont, numBrush, midX - 6, midY, -90);
+                            DrawCenteredText(g, pin.Number, numFont, numBrush, midX - numGap, midY, -90);
                         else
-                            DrawCenteredText(g, pin.Number, numFont, numBrush, midX, midY - 8, 0);
+                            DrawCenteredText(g, pin.Number, numFont, numBrush, midX, midY - numGap, 0);
                     }
 
-                    // 引脚名放在器件体内部，沿引脚方向排列，避免相邻引脚的名字互相覆盖。
+                    // 引脚名放在器件体内部，沿引脚方向排列；超出本侧可用宽度时截断。
+                    // 可用宽度取「引脚根部到器件体中心」再扣掉中缝，左右两侧各占一半，
+                    // 因此同一排的左右引脚名不会在器件体中段相遇压字。
                     if (pin.ShowName && !string.IsNullOrEmpty(pin.Name))
                     {
-                        var textSize = g.MeasureString(pin.Name, numFont);
-                        var ix = centerPt.X - start.X;
-                        var iy = centerPt.Y - start.Y;
-                        var ilen = (float)Math.Sqrt(ix * ix + iy * iy);
-                        if (ilen < 1f) { ix = 0; iy = 1; ilen = 1; }
-                        var labelOffset = 4 + textSize.Width / 2f;
-                        DrawCenteredText(g, pin.Name, numFont, nameBrush,
-                            start.X + ix / ilen * labelOffset,
-                            start.Y + iy / ilen * labelOffset,
-                            vertical ? -90 : 0);
+                        // 只沿引脚轴线偏移，不能朝包围盒中心斜着挪：长名字的偏移量大，
+                        // 斜向量会把整行文字推向器件中心，上下相邻行就在中部叠在一起。
+                        var ix = vertical ? 0f : Math.Sign(centerPt.X - start.X);
+                        var iy = vertical ? Math.Sign(centerPt.Y - start.Y) : 0f;
+                        if (ix == 0 && iy == 0) iy = 1f;
+                        var lineHeight = numFont.GetHeight(g);
+                        var halfRun = vertical
+                            ? (float)Math.Abs(centerPt.Y - start.Y)
+                            : (float)Math.Abs(centerPt.X - start.X);
+
+                        if (!showNames)
+                        {
+                            // 不画文字，但整行留作命中区域：悬停即可看到完整引脚名。
+                            var hitWidth = Math.Max(8f, halfRun - 4f);
+                            var hitHeight = (float)Math.Max(4.0, pitchPx * 0.9 - 4.0);
+                            AddNameHit(start.X + ix * hitWidth / 2f,
+                                start.Y + iy * hitWidth / 2f,
+                                hitWidth - 4f, hitHeight, vertical, pin.Name);
+                            continue;
+                        }
+
+                        var seam = lineHeight * 0.9f + 2f;
+                        var available = Math.Max(lineHeight * 2f, halfRun - seam - 4f);
+                        bool trimmed;
+                        var label = FitText(g, pin.Name, numFont, available, out trimmed);
+                        if (label.Length > 0)
+                        {
+                            var textWidth = g.MeasureString(label, numFont).Width;
+                            var labelOffset = 4 + textWidth / 2f;
+                            var cx = start.X + ix * labelOffset;
+                            var cy = start.Y + iy * labelOffset;
+                            DrawCenteredText(g, label, numFont, nameBrush, cx, cy, vertical ? -90 : 0);
+                            if (trimmed) AddNameHit(cx, cy, textWidth, lineHeight, vertical, pin.Name);
+                        }
                     }
                 }
             }
+        }
+
+        // 按可用宽度截断文本并用省略号收尾；返回是否发生了截断。
+        private static string FitText(Graphics g, string text, Font font, float available, out bool trimmed)
+        {
+            trimmed = false;
+            if (string.IsNullOrEmpty(text)) return text;
+            if (g.MeasureString(text, font).Width <= available) return text;
+
+            trimmed = true;
+            const string ellipsis = "…";
+            var low = 0;
+            var high = text.Length;
+            while (low < high)
+            {
+                var mid = (low + high + 1) / 2;
+                if (g.MeasureString(text.Substring(0, mid) + ellipsis, font).Width <= available) low = mid;
+                else high = mid - 1;
+            }
+            return low <= 0 ? string.Empty : text.Substring(0, low) + ellipsis;
+        }
+
+        private void AddNameHit(float cx, float cy, float width, float lineHeight, bool vertical, string fullText)
+        {
+            var w = (vertical ? lineHeight : width) + 4f;
+            var h = (vertical ? width : lineHeight) + 4f;
+            _nameHits.Add(new KeyValuePair<RectangleF, string>(
+                new RectangleF(cx - w / 2f, cy - h / 2f, w, h), fullText));
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (Capture || _nameHits.Count == 0) return;
+
+            foreach (var hit in _nameHits)
+            {
+                if (!hit.Key.Contains(e.Location)) continue;
+                if (_tipText == hit.Value) return;
+                _tipText = hit.Value;
+                var screen = PointToScreen(e.Location);
+                _nameTip.Show(_tipText, this, screen.X + 12, screen.Y + 16, 4000);
+                return;
+            }
+
+            if (_tipText != null)
+            {
+                _tipText = null;
+                _nameTip.Hide(this);
+            }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            _tipText = null;
+            _nameTip.Hide(this);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _nameTip.Dispose();
+            base.Dispose(disposing);
         }
 
         private static void DrawCenteredText(Graphics g, string text, Font font, Brush brush,
@@ -736,7 +883,9 @@ namespace LcscStudio
 
                 if (showNumber && !string.IsNullOrWhiteSpace(pad.Number))
                 {
-                    var fontSize = Math.Max(6f, Math.Min(11f, bounds.Height * 0.45f));
+                    // 取短边：横放焊盘与竖放焊盘旋转 90° 后短边不变，四边的编号才会一样大。
+                    var fontSize = Math.Max(6f, Math.Min(11f,
+                        Math.Min(bounds.Width, bounds.Height) * 0.45f));
                     using (var font = new Font("Microsoft YaHei UI", fontSize, FontStyle.Bold))
                         TextRenderer.DrawText(g, pad.Number, font, Rectangle.Round(bounds), Color.White,
                             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
@@ -791,8 +940,9 @@ namespace LcscStudio
             {
                 case "TopLayer": return Color.FromArgb(0xD0, 0x30, 0x30);
                 case "BottomLayer": return Color.FromArgb(0x30, 0x50, 0xD0);
-                case "TopSilkLayer": return Color.FromArgb(0xB0, 0x88, 0x00);
-                case "BottomSilkLayer": return Color.FromArgb(0x80, 0x70, 0x50);
+                // 丝印用浅色，和金色焊盘拉开距离，避免两者糊成一片。
+                case "TopSilkLayer": return Color.FromArgb(0xE6, 0xEA, 0xF0);
+                case "BottomSilkLayer": return Color.FromArgb(0x9C, 0xA8, 0xB8);
                 case "TopPasteMaskLayer":
                 case "BottomPasteMaskLayer": return Color.FromArgb(0x90, 0x90, 0x90);
                 case "TopSolderMaskLayer":

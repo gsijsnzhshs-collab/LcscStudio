@@ -44,13 +44,9 @@ namespace LcscStudio
         private Button _zoomOutButton;
         private Button _zoomInButton;
         private Button _resetViewButton;
-        private readonly Label _modelHint = new Label
-        {
-            Text = "3D 预览暂不可用\n导入后可在 AD 中查看模型",
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleCenter,
-            ForeColor = Theme.TextMuted,
-        };
+        private readonly Model3DCanvas _modelCanvas = new Model3DCanvas();
+        private CancellationTokenSource _modelCts;
+        private string _modelKey;
         private readonly Label _targetLabel;
         private readonly Button _importButton;
         private readonly Button _placeButton;
@@ -375,13 +371,10 @@ namespace LcscStudio
                 Padding = new Padding(1),
             };
 
-            _modelHint.Dock = DockStyle.Fill;
-            _modelHint.TextAlign = ContentAlignment.MiddleCenter;
-            _modelHint.ForeColor = Theme.TextMuted;
-            _modelHint.BackColor = Theme.Canvas;
+            _modelCanvas.Dock = DockStyle.Fill;
             _symbolCanvas.Dock = DockStyle.Fill;
             _footprintCanvas.Dock = DockStyle.Fill;
-            previewHost.Controls.Add(_modelHint);
+            previewHost.Controls.Add(_modelCanvas);
             previewHost.Controls.Add(_footprintCanvas);
             previewHost.Controls.Add(_symbolCanvas);
 
@@ -655,10 +648,11 @@ namespace LcscStudio
             _previewTab = index;
             _symbolCanvas.Visible = index == 0;
             _footprintCanvas.Visible = index == 1;
-            _modelHint.Visible = index == 2;
+            _modelCanvas.Visible = index == 2;
             _paramList.Visible = index == 3;
             if (index == 3) LayoutParameterColumns();
-            _viewBar.Visible = index < 2;
+            _viewBar.Visible = index < 3;
+            if (index == 2) LoadModel();
             for (var i = 0; i < _tabButtons.Length; i++)
             {
                 if (_tabButtons[i] == null) continue;
@@ -671,6 +665,7 @@ namespace LcscStudio
         {
             if (_previewTab == 0) return _symbolCanvas;
             if (_previewTab == 1) return _footprintCanvas;
+            if (_previewTab == 2) return _modelCanvas;
             return null;
         }
 
@@ -828,22 +823,28 @@ namespace LcscStudio
         private void LayoutColumns()
         {
             if (_headerTable == null || _list.Columns.Count < 5) return;
-            // 预留竖向滚动条宽度，避免出现横向滚动条。
-            var clientWidth = _list.ClientSize.Width;
-            var width = Math.Max(80, clientWidth - 20);
+            // ListView 的 ClientSize 已经扣掉了竖向滚动条的宽度，不能再按滚动条宽度
+            // 预留一次（之前 -20 会把 269 压成 249，型号列被截成“0603W…”）。
+            // 只留 4px 给右侧自绘滚动条压边，避免最后一列被细条盖住。
+            var width = Math.Max(80, _list.ClientSize.Width - 4);
 
-            // 窄宽度下先隐藏单价，再隐藏库存，避免“¥0…”“4…”这类无意义截断。
-            var visible = width < 220 ? 3 : width < 300 ? 4 : 5;
+            // 编号 / 型号 / 封装 是关键列，任何宽度下都完整保留；库存与单价按可用
+            // 宽度追加。可见列数用面板宽度而不是列表宽度判断：滚动条出现/消失会让
+            // 列表宽度跳 19px，用列表宽度判断会让列数跟着来回跳。
+            var visible = Width < 350 ? 3 : Width < 450 ? 4 : 5;
             if (_lastLayoutWidth != width || _lastVisibleColumns != visible)
             {
                 _lastLayoutWidth = width;
                 _lastVisibleColumns = visible;
                 PluginLog.Write("panel layout width=" + width + " visible=" + visible +
-                    " listClient=" + clientWidth + " panel=" + Width + "x" + Height);
+                    " listClient=" + _list.ClientSize.Width + " panel=" + Width + "x" + Height);
             }
 
-            // 压缩列宽时给表头留足空间：“库存”在 34px 下会被截成“库…”。
-            var minimum = new[] { 64, 52, 46, 40, 42 };
+            // 关键列的最小可读宽度：编号 7~9 位、型号常见 12~18 字符、封装 5~9 字符，
+            // 再留出单元格左右各 6px 的内边距。
+            var minimum = new[] { 66, 110, 66, 48, 56 };
+            // 与旧版（AD20 时期）一致：多出来的宽度按固定比例分给所有可见列，
+            // 拉宽面板时编号/型号/封装/库存/单价一起变大，而不是只撑宽型号。
             var ratio = new[] { 0.20, 0.28, 0.22, 0.14, 0.16 };
             var widths = new int[5];
             var minSum = 0;
@@ -854,25 +855,25 @@ namespace LcscStudio
                 ratioSum += ratio[i];
             }
 
-            var used = 0;
             if (width <= minSum)
             {
-                for (var i = 0; i < visible; i++)
-                {
-                    widths[i] = Math.Max(20, (int)(minimum[i] * width / (double)minSum));
-                    used += widths[i];
-                }
+                // 比关键列最小宽度还窄：不再压缩，宁可出横向滚动条也不截断文字。
+                for (var i = 0; i < visible; i++) widths[i] = minimum[i];
+                ShowHorizontalScroll();
             }
             else
             {
                 var extra = width - minSum;
+                var used = 0;
                 for (var i = 0; i < visible; i++)
                 {
                     widths[i] = minimum[i] + (int)Math.Floor(extra * ratio[i] / ratioSum);
                     used += widths[i];
                 }
+                // 取整剩下的零头补给最后一列，保证总宽正好等于可用宽度。
+                widths[visible - 1] += width - used;
+                HideHorizontalScroll();
             }
-            widths[visible - 1] += width - used;
 
             for (var i = 0; i < 5; i++)
             {
@@ -882,8 +883,17 @@ namespace LcscStudio
                     _headerTable.ColumnStyles[i].Width = columnWidth;
                 if (_headerLabels[i] != null) _headerLabels[i].Visible = i < visible;
             }
+        }
 
-            HideHorizontalScroll();
+        // 窄到关键列都放不下时才恢复横向滚动条，让用户自己拖动查看，而不是牺牲列内容。
+        private void ShowHorizontalScroll()
+        {
+            if (!_list.IsHandleCreated) return;
+            try { ShowScrollBar(_list.Handle, SbHorz, true); }
+            catch
+            {
+                // 隐藏失败不影响使用。
+            }
         }
 
         // 列宽已经压到可视宽度内，横向滚动条没有任何用处，而且系统浅色条在深色面板里很突兀。
@@ -1138,9 +1148,8 @@ namespace LcscStudio
                 _symbolCanvas.SetSymbols(details.Part.SymbolParts);
                 _footprintCanvas.Footprint = details.Part.Footprint;
                 FillParameters(details.Part, await attributesTask);
-                _modelHint.Text = details.Part.Footprint.Model == null
-                    ? "该器件没有 3D 模型\n可在封装页查看 2D 图形"
-                    : "3D 预览暂不可用\n导入后可在 AD 中查看模型";
+                if (_previewTab == 2) LoadModel();
+                else _modelCanvas.ShowEmpty();
             }
             catch (Exception ex)
             {
@@ -1151,11 +1160,82 @@ namespace LcscStudio
             }
         }
 
+        // 3D 页签按需加载：只有切到该页才下载 OBJ，避免每次选中器件都拉模型。
+        private async void LoadModel()
+        {
+            var details = _details;
+            if (details == null)
+            {
+                _modelCanvas.ShowEmpty();
+                return;
+            }
+
+            if (details.Part.Footprint.Model == null)
+            {
+                _modelCanvas.ShowNoModel();
+                return;
+            }
+
+            if (_modelCanvas.HasMesh && _modelKey == details.Part.LcscId) return;
+
+            if (_modelCts != null)
+            {
+                _modelCts.Cancel();
+                _modelCts = null;
+            }
+
+            var cts = new CancellationTokenSource();
+            _modelCts = cts;
+            _modelKey = details.Part.LcscId;
+            _modelCanvas.ShowLoading();
+            try
+            {
+                var path = await PartCache.EnsureObjAsync(details, cts.Token);
+                if (cts.IsCancellationRequested || IsDisposed || !ReferenceEquals(_details, details)) return;
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    _modelCanvas.ShowFailed();
+                    return;
+                }
+
+                var mesh = await Task.Run(() => ObjMesh.Load(path), cts.Token);
+                if (cts.IsCancellationRequested || IsDisposed || !ReferenceEquals(_details, details)) return;
+                _modelCanvas.SetMesh(mesh);
+            }
+            catch (OperationCanceledException)
+            {
+                // 选中了别的器件，交给新的加载任务。
+            }
+            catch (Exception ex)
+            {
+                if (!IsDisposed) _modelCanvas.ShowFailed();
+                PluginLog.Write("panel model failed: " + ex);
+            }
+            finally
+            {
+                if (ReferenceEquals(_modelCts, cts)) _modelCts = null;
+                cts.Dispose();
+            }
+        }
+
+        private void ResetModel()
+        {
+            if (_modelCts != null)
+            {
+                _modelCts.Cancel();
+                _modelCts = null;
+            }
+
+            _modelKey = null;
+            _modelCanvas.ShowEmpty();
+        }
+
         private void ClearDetails(string hint)
         {
             _details = null;
             _symbolCanvas.Symbol = null;
             _footprintCanvas.Footprint = null;
+            ResetModel();
             FillParameters(null, null);
             _partMeta.Text = hint ?? "";
         }

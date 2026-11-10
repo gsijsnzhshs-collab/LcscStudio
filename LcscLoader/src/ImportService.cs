@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -96,35 +98,124 @@ namespace LcscLoader
 
                     var item = request.Parts[i];
                     lastLibReference = null;
+                    var pcbLibName = Path.GetFileName(request.PcbLibPath);
+                    var schLibName = Path.GetFileName(request.SchLibPath);
+                    var itemCaption = item.Part.LcscId;
 
                     try
                     {
                         FootprintImport footprint = null;
                         if (pcbLib != null && pcbDoc != null)
                         {
+                            var footprintName = string.IsNullOrWhiteSpace(item.Part.Footprint.Name)
+                                ? item.Part.LcscId
+                                : item.Part.Footprint.Name;
+                            var footprintWatch = Stopwatch.StartNew();
+                            var modelWatch = new Stopwatch();
+                            var bodyAdded = false;
+
                             AdApi.PcbServer.PreProcess();
                             try
                             {
                                 footprint = FootprintImporter.Import(item.Part, request.Overwrite, pcbLib);
                                 if (footprint != null && !footprint.Skipped && item.Model != null)
-                                    Model3DImporter.AddBody(footprint, item.Part.Footprint.Model, item.Model);
+                                {
+                                    modelWatch.Start();
+                                    bodyAdded = Model3DImporter.AddBody(
+                                        footprint, item.Part.Footprint.Model, item.Model);
+                                    modelWatch.Stop();
+                                }
+                                pcbDoc.DoFileSave("PcbLib");
+                            }
+                            catch (Exception ex)
+                            {
+                                ImportLog.Add(string.Format(
+                                    "[封装] 失败 库={0} 元件={1} 耗时={2}ms：{3}",
+                                    pcbLibName, footprintName, footprintWatch.ElapsedMilliseconds, ex.Message));
+                                PluginLog.Write("import step footprint failed: " + itemCaption + " " + ex);
+                                throw;
                             }
                             finally
                             {
                                 AdApi.PcbServer.PostProcess();
                             }
-                            pcbDoc.DoFileSave("PcbLib");
+                            footprintWatch.Stop();
+
+                            var footprintCaption = string.IsNullOrWhiteSpace(footprint.PatternName)
+                                ? footprintName
+                                : footprint.PatternName;
+                            ImportLog.Add(string.Format(
+                                "[封装] {0} 库={1} 元件={2} 图元={3} 库字节={4} 耗时={5}ms",
+                                footprint.Skipped ? "跳过（已存在）"
+                                    : string.IsNullOrWhiteSpace(footprint.PatternName) ? "跳过（无可用封装）" : "成功",
+                                pcbLibName, footprintCaption, item.Part.Footprint.Shapes.Count,
+                                FileBytes(request.PcbLibPath), footprintWatch.ElapsedMilliseconds));
+
+                            if (item.Model != null && !footprint.Skipped &&
+                                !string.IsNullOrWhiteSpace(footprint.PatternName))
+                            {
+                                ImportLog.Add(string.Format(
+                                    "[3D] {0} 元件={1} 模型={2} 模型字节={3} 耗时={4}ms",
+                                    bodyAdded ? "成功" : "失败", footprintCaption,
+                                    Path.GetFileName(item.Model.StepPath),
+                                    FileBytes(item.Model.StepPath), modelWatch.ElapsedMilliseconds));
+                            }
+                            else if (item.Model == null && !footprint.Skipped &&
+                                     item.Part.Footprint.Model != null)
+                            {
+                                ImportLog.Add("[3D] 跳过 元件=" + footprintCaption + " 原因=模型未下载");
+                            }
+                            else if (item.Model != null && footprint.Skipped)
+                            {
+                                ImportLog.Add("[3D] 跳过 元件=" + footprintCaption + " 原因=封装已存在未覆盖");
+                            }
                         }
 
                         if (schLib != null && schDoc != null)
                         {
-                            SymbolImporter.Import(item.Part, schLib, request.PcbLibPath,
-                                footprint?.PatternName, request.Overwrite);
-                            schDoc.DoFileSave("SchLib");
-
-                            lastLibReference = string.IsNullOrWhiteSpace(item.Part.Symbol.Name)
+                            var libReference = string.IsNullOrWhiteSpace(item.Part.Symbol.Name)
                                 ? item.Part.LcscId
                                 : item.Part.Symbol.Name;
+                            var existed = false;
+                            try { existed = schLib.GetState_SchComponentByLibRef(libReference) != null; }
+                            catch
+                            {
+                                // 查询失败按“不存在”处理，只影响日志里的跳过标记。
+                            }
+                            var symbolWatch = Stopwatch.StartNew();
+                            try
+                            {
+                                SymbolImporter.Import(item.Part, schLib, request.PcbLibPath,
+                                    footprint?.PatternName, request.Overwrite);
+                                schDoc.DoFileSave("SchLib");
+                            }
+                            catch (Exception ex)
+                            {
+                                ImportLog.Add(string.Format(
+                                    "[符号] 失败 库={0} 元件={1} 耗时={2}ms：{3}",
+                                    schLibName, libReference, symbolWatch.ElapsedMilliseconds, ex.Message));
+                                PluginLog.Write("import step symbol failed: " + itemCaption + " " + ex);
+                                throw;
+                            }
+                            symbolWatch.Stop();
+
+                            var shapeCount = 0;
+                            var pinCount = 0;
+                            var parts = item.Part.SymbolParts.Count > 0
+                                ? item.Part.SymbolParts
+                                : new List<EeSymbol> { item.Part.Symbol };
+                            foreach (var symbol in parts)
+                            {
+                                shapeCount += symbol.Shapes.Count;
+                                pinCount += symbol.Pins.Count;
+                            }
+                            ImportLog.Add(string.Format(
+                                "[符号] {0} 库={1} 元件={2} 图形={3} 引脚={4} 库字节={5} 耗时={6}ms",
+                                existed && !request.Overwrite ? "跳过（已存在）" : "成功",
+                                schLibName, libReference, shapeCount, pinCount,
+                                FileBytes(request.SchLibPath), symbolWatch.ElapsedMilliseconds));
+
+                            lastLibReference = libReference;
                         }
 
                         outcome.Imported++;
@@ -162,6 +253,13 @@ namespace LcscLoader
             }
 
             return outcome;
+        }
+
+        // 日志里的“字节数”用于确认文件确实落盘，取不到时记 0，不影响导入流程。
+        private static long FileBytes(string path)
+        {
+            try { return string.IsNullOrWhiteSpace(path) || !File.Exists(path) ? 0 : new FileInfo(path).Length; }
+            catch { return 0; }
         }
     }
 }

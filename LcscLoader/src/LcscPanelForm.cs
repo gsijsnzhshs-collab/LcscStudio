@@ -16,8 +16,6 @@ namespace LcscLoader
         internal const string PanelCaption = "ADesignK";
 
         private Size _lastSize;
-        private readonly Timer _fitTimer;
-        private int _fitTicks;
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetParent(IntPtr hWnd);
@@ -34,15 +32,9 @@ namespace LcscLoader
             AutoScaleMode = AutoScaleMode.None;
             Controls.Add(new LcscStudio.PanelForm { Dock = DockStyle.Fill });
 
-            // ServerPanelForm keeps its design size (433x1328) while AD hosts it in a
-            // narrower container (289x885); adopt the native host client size.
-            _fitTimer = new Timer { Interval = 1200 };
-            _fitTimer.Tick += (s, e) =>
-            {
-                if (++_fitTicks > 12) { _fitTimer.Stop(); _fitTimer.Dispose(); return; }
-                FitToHost();
-            };
-            _fitTimer.Start();
+            // 面板加载后 AD 会把宿主窗体调整到停靠容器大小，加载时对齐一次即可。
+            // 之前这里挂了 1.2s 轮询反复改写 Size，会和停靠管理器互相抢宽度，
+            // 表现为日志里成对的 width=249/268 与面板被收成右侧竖标签。
         }
 
         private void FitToHost()

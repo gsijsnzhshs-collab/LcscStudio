@@ -12,6 +12,8 @@ namespace LcscStudio
         private readonly ComboBox _pageSize;
         private readonly Label _targetSummary;
         private CheckBox _overwrite;
+        private readonly Button _ok;
+        private readonly Button _cancel;
 
         public AppSettings Result { get; private set; }
 
@@ -75,16 +77,27 @@ namespace LcscStudio
             cacheGroup.Controls.Add(openCache);
             Controls.Add(cacheGroup);
 
-            var ok = new Button { Text = "确定", Left = 346, Top = 340, Width = 84, Height = 28 };
-            var cancel = new Button { Text = "取消", Left = 438, Top = 340, Width = 84, Height = 28 };
-            ok.Click += (s, e) => Confirm();
-            cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
-            Controls.Add(ok);
-            Controls.Add(cancel);
+            _ok = new Button { Text = "确定", Left = 346, Top = 340, Width = 84, Height = 28 };
+            _cancel = new Button { Text = "取消", Left = 438, Top = 340, Width = 84, Height = 28 };
+            _ok.Click += (s, e) => Confirm();
+            _cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
+            // 与“下载位置”保持一致：回车 = 确定，Esc = 取消。
+            // 没有这两行时，设置框按回车/Esc 都没有反应（实测）。
+            AcceptButton = _ok;
+            CancelButton = _cancel;
+            Controls.Add(_ok);
+            Controls.Add(_cancel);
             Theme.ApplyRecursive(this);
-            Theme.StyleButton(ok, true);
-            Theme.ApplyButtons(this, ok);
+            Theme.StyleButton(_ok, true);
+            Theme.ApplyButtons(this, _ok);
             Theme.ScaleFormToDpi(this);
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            // 中文输入法的浮动条钉在工作区右下角，显示前把按钮行挪出那一带。
+            Theme.PlaceDialog(this, Rectangle.Union(_ok.Bounds, _cancel.Bounds));
         }
 
         private void ChangeTarget()

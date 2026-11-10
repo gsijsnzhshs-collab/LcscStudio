@@ -20,6 +20,8 @@ namespace LcscStudio
         private readonly CheckBox _overwrite;
         private readonly CheckBox _place;
         private readonly Label _preview;
+        private readonly Button _ok;
+        private readonly Button _cancel;
 
         public AppSettings Result { get; private set; }
 
@@ -28,7 +30,10 @@ namespace LcscStudio
             _draft = settings.Clone();
             Text = "下载位置";
             Width = 620;
-            Height = 496;
+            // 底部多留 44px：中文输入法的候选条是浮层，会盖住窗口右下角，
+            // 原来按钮离底边只有 ~17px，“确定”经常点不到。加大安全边距后
+            // 候选条只压到空白区；同时下面设置 AcceptButton，直接回车也能确认。
+            Height = 540;
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -106,15 +111,18 @@ namespace LcscStudio
             optionsGroup.Controls.Add(_overwrite);
             optionsGroup.Controls.Add(_place);
 
-            var ok = new Button { Text = "确定", Left = 426, Top = 412, Width = 84, Height = 28 };
-            var cancel = new Button { Text = "取消", Left = 518, Top = 412, Width = 84, Height = 28 };
-            ok.Click += (s, e) => Confirm();
-            cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
-            Controls.Add(ok);
-            Controls.Add(cancel);
+            _ok = new Button { Text = "确定", Left = 426, Top = 430, Width = 84, Height = 28 };
+            _cancel = new Button { Text = "取消", Left = 518, Top = 430, Width = 84, Height = 28 };
+            _ok.Click += (s, e) => Confirm();
+            _cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
+            // 回车 = 确定，Esc = 取消；输入法候选条打开时回车先被输入法吃掉，不会误确认。
+            AcceptButton = _ok;
+            CancelButton = _cancel;
+            Controls.Add(_ok);
+            Controls.Add(_cancel);
             Theme.ApplyRecursive(this);
-            Theme.StyleButton(ok, true);
-            Theme.ApplyButtons(this, ok);
+            Theme.StyleButton(_ok, true);
+            Theme.ApplyButtons(this, _ok);
 
             _newMode.CheckedChanged += (s, e) => UpdateMode();
             _mergeMode.CheckedChanged += (s, e) => UpdateMode();
@@ -127,6 +135,13 @@ namespace LcscStudio
             };
             UpdateMode();
             Theme.ScaleFormToDpi(this);
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            // 中文输入法的浮动条钉在工作区右下角，显示前把按钮行挪出那一带。
+            Theme.PlaceDialog(this, Rectangle.Union(_ok.Bounds, _cancel.Bounds));
         }
 
         private void UpdateMode()

@@ -92,6 +92,83 @@ namespace LcscStudio
             }
         }
 
+        // Win11 微软拼音的输入法工具栏（中/英、全半角、标点、简繁、表情、设置）由
+        // TextInputHost 绘制，是本进程之外的置顶浮层，默认钉在屏幕工作区右下角
+        // （实测 110% DPI：230x40，距右边 235px、距底 42px），不跟随输入光标。
+        // 对话框按 CenterParent 居中在停靠面板上时，底部按钮行可能正好落进这一带，
+        // 被浮层盖住且点不到；只把窗口加高、在按钮下留白只能躲开一次。
+        // 这里在显示前统一定位：以 owner 居中为初值 → 限制在 owner 所在显示器工作区
+        // 内 → 若按钮行与右下角安全带相交，先上移让开，顶部放不下再左移。
+        public static void PlaceDialog(Form form, Rectangle actionRow)
+        {
+            var owner = form.Owner;
+            Rectangle target;
+            Screen screen;
+
+            var ownerBounds = owner != null && owner.Visible ? owner.Bounds : Rectangle.Empty;
+            if (ownerBounds.Width > 0 && ownerBounds.Height > 0)
+            {
+                screen = Screen.FromRectangle(ownerBounds);
+                if (!screen.WorkingArea.IntersectsWith(ownerBounds))
+                {
+                    // owner 停在屏幕外（停靠容器折叠等），退回鼠标所在显示器居中。
+                    screen = Screen.FromPoint(Cursor.Position);
+                    target = CenterIn(screen.WorkingArea, form.Size);
+                }
+                else
+                {
+                    target = new Rectangle(
+                        ownerBounds.Left + (ownerBounds.Width - form.Width) / 2,
+                        ownerBounds.Top + (ownerBounds.Height - form.Height) / 2,
+                        form.Width,
+                        form.Height);
+                }
+            }
+            else
+            {
+                screen = Screen.FromPoint(Cursor.Position);
+                target = CenterIn(screen.WorkingArea, form.Size);
+            }
+
+            var area = screen.WorkingArea;
+            const int margin = 8;
+            target.X = Math.Max(area.Left + margin, Math.Min(target.X, area.Right - margin - target.Width));
+            target.Y = Math.Max(area.Top + margin, Math.Min(target.Y, area.Bottom - margin - target.Height));
+
+            // 先落到计算位置，再按实际窗口位置换算按钮行的屏幕矩形。
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = target.Location;
+
+            var row = new Rectangle(form.PointToScreen(actionRow.Location), actionRow.Size);
+            var band = new Rectangle(area.Right - 520, area.Bottom - 120, 520, 120);
+            if (!row.IntersectsWith(band))
+            {
+                return;
+            }
+
+            var lift = row.Bottom - (band.Top - 6);
+            if (target.Y - lift >= area.Top + margin)
+            {
+                target.Y -= lift;
+            }
+            else
+            {
+                target.Y = area.Top + margin;
+                var shift = row.Right - (band.Left - 6);
+                target.X = Math.Max(area.Left + margin, target.X - shift);
+            }
+            form.Location = target.Location;
+        }
+
+        private static Rectangle CenterIn(Rectangle area, Size size)
+        {
+            return new Rectangle(
+                area.Left + (area.Width - size.Width) / 2,
+                area.Top + (area.Height - size.Height) / 2,
+                size.Width,
+                size.Height);
+        }
+
         public static void EnableDarkTitleBar(Form form)
         {
             void Apply()
