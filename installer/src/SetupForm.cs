@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
@@ -25,6 +26,9 @@ namespace LcscSetup
         private readonly Label _subtitle;
         private readonly Label _listCaption;
         private readonly ListView _list;
+        private readonly CheckBox _customPathCheck;
+        private readonly TextBox _userDataPath;
+        private readonly Button _browsePath;
         private readonly TextBox _log;
         private readonly Label _logCaption;
         private readonly Label _status;
@@ -37,7 +41,7 @@ namespace LcscSetup
         public SetupForm()
         {
             Text = "LCSC ADesignK · Altium 插件安装器";
-            ClientSize = new Size(820, 660);
+            ClientSize = new Size(820, 720);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
@@ -108,6 +112,46 @@ namespace LcscSetup
             _close = MakeButton("关闭", false);
             _close.Click += (s, e) => Close();
             Controls.Add(_close);
+
+            _customPathCheck = new CheckBox
+            {
+                Text = "自定义用户数据目录（log / 3D 缓存 / 设置 / 默认库）",
+                ForeColor = TextColor,
+                BackColor = Surface,
+                AutoSize = true,
+            };
+            _customPathCheck.CheckedChanged += (s, e) =>
+            {
+                _userDataPath.Enabled = _customPathCheck.Checked;
+                _browsePath.Enabled = _customPathCheck.Checked;
+            };
+            Controls.Add(_customPathCheck);
+
+            _userDataPath = new TextBox
+            {
+                BackColor = Color.FromArgb(0x17, 0x18, 0x1B),
+                ForeColor = TextColor,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Consolas", 8.5F),
+                Enabled = false,
+            };
+            Controls.Add(_userDataPath);
+
+            _browsePath = MakeButton("浏览…", false);
+            _browsePath.Enabled = false;
+            _browsePath.Click += (s, e) =>
+            {
+                using (var dialog = new FolderBrowserDialog())
+                {
+                    dialog.Description = "选择用户数据根目录（将在其中创建 logs / cache / settings / libraries 子目录）";
+                    dialog.ShowNewFolderButton = true;
+                    if (!string.IsNullOrWhiteSpace(_userDataPath.Text) && Directory.Exists(_userDataPath.Text))
+                        dialog.SelectedPath = _userDataPath.Text;
+                    if (dialog.ShowDialog(this) == DialogResult.OK)
+                        _userDataPath.Text = dialog.SelectedPath;
+                }
+            };
+            Controls.Add(_browsePath);
 
             _logCaption = new Label
             {
@@ -181,7 +225,10 @@ namespace LcscSetup
             var buttonHeight = Font.Height + 18;
             var spacing = Math.Max(12, (int)(Font.Height * 0.8));
 
+            var customRowHeight = _customPathCheck.Height + pad + buttonHeight + pad;
+
             var listHeight = ClientSize.Height - y - buttonHeight - spacing
+                             - customRowHeight
                              - _logCaption.Height - 6 - logHeight - spacing - statusHeight - pad;
             _list.Location = new Point(SideMargin, y);
             _list.Size = new Size(contentWidth, Math.Max(160, listHeight));
@@ -215,6 +262,18 @@ namespace LcscSetup
 
             _manual.Size = new Size(manualWidth, buttonHeight);
             _manual.Location = new Point(_refresh.Right + 8, y);
+
+            y += buttonHeight + spacing;
+
+            _customPathCheck.Location = new Point(SideMargin, y);
+            y += _customPathCheck.Height + pad;
+
+            var browseWidth = ButtonWidth("浏览…");
+            _browsePath.Size = new Size(browseWidth, buttonHeight);
+            _browsePath.Location = new Point(SideMargin + contentWidth - browseWidth, y);
+
+            _userDataPath.Size = new Size(contentWidth - browseWidth - 8, buttonHeight);
+            _userDataPath.Location = new Point(SideMargin, y);
 
             y += buttonHeight + spacing;
 
@@ -344,6 +403,15 @@ namespace LcscSetup
                 return;
             }
 
+            if (install && _customPathCheck.Checked && string.IsNullOrWhiteSpace(_userDataPath.Text))
+            {
+                SetStatus("已勾选自定义用户数据目录，请在输入框里填写路径。", true);
+                MessageBox.Show(this,
+                    "自定义用户数据目录已勾选，但路径为空。\n请填写有效路径，或取消勾选以使用系统默认目录。",
+                    "LCSC ADesignK 安装器", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             if (Installer.AltiumRunning(out var runningDetail))
             {
                 MessageBox.Show(this, runningDetail, "LCSC ADesignK 安装器",
@@ -353,13 +421,15 @@ namespace LcscSetup
             }
 
             var failed = 0;
+            var userDataRoot = install && _customPathCheck.Checked && !string.IsNullOrWhiteSpace(_userDataPath.Text)
+                ? _userDataPath.Text : null;
             foreach (var target in targets)
             {
                 try
                 {
                     Log((install ? "安装 → " : "卸载 → ") + target.SystemDir);
                     var message = install
-                        ? Installer.Install(target, true, Log)
+                        ? Installer.Install(target, true, Log, userDataRoot)
                         : Installer.Uninstall(target, Log);
                     Log("  " + message);
                 }

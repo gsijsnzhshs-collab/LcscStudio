@@ -24,11 +24,9 @@ namespace LcscStudio
 
     internal static class PartCache
     {
-        public static readonly string Root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "LCSCLoader", "cache");
-        private static readonly string ObjDir = Path.Combine(Root, "obj");
-        private static readonly string StepDir = Path.Combine(Root, "step");
+        public static string Root => StoragePaths.CacheDir;
+        private static string ObjDir => Path.Combine(Root, "obj");
+        private static string StepDir => Path.Combine(Root, "step");
 
         public static async Task<PartDetails> LoadAsync(
             string lcscId, bool loadModel, CancellationToken cancellationToken)

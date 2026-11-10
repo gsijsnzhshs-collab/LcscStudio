@@ -12,9 +12,7 @@ namespace LcscLoader
         {
             try
             {
-                var directory = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AltiumLCSC");
-                Directory.CreateDirectory(directory);
+                var directory = StoragePaths.LogDir;
                 var line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " " + message +
                            Environment.NewLine;
                 lock (Sync)

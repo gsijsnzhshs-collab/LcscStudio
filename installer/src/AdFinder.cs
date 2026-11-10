@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Win32;
 
 namespace LcscSetup
@@ -268,7 +269,7 @@ namespace LcscSetup
             return true;
         }
 
-        public static string Install(AdInstall install, bool backup, Action<string> log)
+        public static string Install(AdInstall install, bool backup, Action<string> log, string userDataRoot = null)
         {
             if (AltiumRunning(out var runningDetail)) throw new InvalidOperationException(runningDetail);
 
@@ -294,8 +295,39 @@ namespace LcscSetup
                 log("  写入 " + name + "  " + actual.Substring(0, 12) + "…");
             }
 
+            // 用户自定义数据路径：写入 paths.json 让 StoragePaths 读取，null 或空白跳过（插件自己用默认 SpecialFolder）。
+            if (!string.IsNullOrWhiteSpace(userDataRoot))
+            {
+                var root = Path.GetFullPath(userDataRoot.Trim());
+                Directory.CreateDirectory(root);
+                var logDir = Path.Combine(root, "logs");
+                var cacheDir = Path.Combine(root, "cache");
+                var settingsDir = Path.Combine(root, "settings");
+                var libraryDir = Path.Combine(root, "libraries");
+                Directory.CreateDirectory(logDir);
+                Directory.CreateDirectory(cacheDir);
+                Directory.CreateDirectory(settingsDir);
+                Directory.CreateDirectory(libraryDir);
+
+                var builder = new System.Text.StringBuilder();
+                builder.AppendLine("{");
+                builder.AppendLine("  \"logDir\": \"" + EscapeJson(logDir) + "\",");
+                builder.AppendLine("  \"cacheDir\": \"" + EscapeJson(cacheDir) + "\",");
+                builder.AppendLine("  \"settingsDir\": \"" + EscapeJson(settingsDir) + "\",");
+                builder.AppendLine("  \"libraryDir\": \"" + EscapeJson(libraryDir) + "\"");
+                builder.AppendLine("}");
+                var pathsFile = Path.Combine(install.SystemDir, "paths.json");
+                File.WriteAllText(pathsFile, builder.ToString(), new UTF8Encoding(false));
+                log("  写入 paths.json → 用户数据根目录 " + root);
+            }
+
             ReadInstalledState(install);
             return "已安装到 " + install.SystemDir + "，请启动 Altium Designer。";
+        }
+
+        private static string EscapeJson(string value)
+        {
+            return value.Replace(@"\", @"\\").Replace(@"""", @"\""");
         }
 
         public static string Uninstall(AdInstall install, Action<string> log)
@@ -310,6 +342,13 @@ namespace LcscSetup
                 File.Delete(target);
                 removed.Add(name);
                 log("  删除 " + name);
+            }
+
+            var pathsFile = Path.Combine(install.SystemDir, "paths.json");
+            if (File.Exists(pathsFile))
+            {
+                File.Delete(pathsFile);
+                log("  删除 paths.json");
             }
 
             var registryNote = RemoveProgramDataEntry(log);

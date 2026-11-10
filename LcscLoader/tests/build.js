@@ -22,6 +22,7 @@ const SOURCES = [
   'LcscLoader/src/EeEndpoints.cs',
   'LcscLoader/src/EasyEdaApi.cs',
   'LcscLoader/src/EasyEdaModels.cs',
+  'LcscLoader/src/StoragePaths.cs',
   'LcscLoader/src/SvgPath.cs',
   'LcscLoader/tests/Harness.cs',
 ];
