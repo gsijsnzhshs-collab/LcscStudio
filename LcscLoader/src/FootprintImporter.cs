@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using PCB;
 
@@ -14,10 +15,10 @@ namespace LcscLoader
 
     internal static class FootprintImporter
     {
-        public static FootprintImport Import(LcscPart part, bool overwrite)
+        public static FootprintImport Import(LcscPart part, bool overwrite, IPCB_Library library = null)
         {
             var result = new FootprintImport();
-            var pcbLib = AdApi.PcbServer.GetCurrentPCBLibrary();
+            var pcbLib = library ?? AdApi.PcbServer.GetCurrentPCBLibrary();
             if (pcbLib == null)
                 throw new InvalidOperationException("请先打开一个 PCB 库（PcbLib）文档");
 
@@ -55,6 +56,11 @@ namespace LcscLoader
             var pattern = pcbLib.GetUniqueCompName(baseName);
             component.SetState_Pattern(pattern);
             component.SetState_Description(part.Description);
+            // 组件落点必须对齐“当前库原点”（显示为 0,0），不能写死内部坐标 0：
+            // 内部 0 是 AD 绝对坐标系的角落，离库原点有 500,000,000 单位（实测）。
+            var board = pcbLib.GetState_Board();
+            component.SetState_XLocation(board.GetState_XOrigin());
+            component.SetState_YLocation(board.GetState_YOrigin());
 
             var context = new FpContext(part.Footprint, component);
             foreach (var shape in part.Footprint.Shapes)
@@ -83,6 +89,8 @@ namespace LcscLoader
             public readonly IPCB_LibComponent Component;
             private readonly int _offsetX;
             private readonly int _offsetY;
+            private readonly double _centerX;
+            private readonly double _centerY;
 
             public FpContext(EeFootprint footprint, IPCB_LibComponent component)
             {
@@ -90,11 +98,15 @@ namespace LcscLoader
                 Component = component;
                 _offsetX = component.GetState_XLocation();
                 _offsetY = component.GetState_YLocation();
+                var center = ReferenceCenter(footprint);
+                _centerX = center.X;
+                _centerY = center.Y;
             }
 
-            public double X(double x) => x - Footprint.BoxX - Footprint.BoxWidth / 2.0;
+            // 封装参考点放在引脚焊盘外接框中心，而不是整幅图（含丝印/3D/机械层）的中心。
+            public double X(double x) => x - _centerX;
 
-            public double Y(double y) => Footprint.BoxHeight - (y - Footprint.BoxY) - Footprint.BoxHeight / 2.0;
+            public double Y(double y) => _centerY - y;
 
             public int CoordX(double mm) => AdApi.MmToCoord(mm) + _offsetX;
 
@@ -108,6 +120,166 @@ namespace LcscLoader
                 return Footprint.Layers.TryGetValue(layerId, out var name)
                     ? LayerMap.TryMap(name, out layer, out error)
                     : LayerMap.TryMap(layerId, out layer, out error);
+            }
+        }
+
+        // 所有会真正导入 AD 的二维图元的外接框中心，等价于在 AD 里执行
+        // Edit » Set Reference » Center（3D 轮廓与未导入的 SOLIDREGION 不计入）。
+        internal static (double X, double Y) ReferenceCenter(EeFootprint footprint)
+        {
+            double minX = double.MaxValue, maxX = double.MinValue;
+            double minY = double.MaxValue, maxY = double.MinValue;
+            var any = false;
+
+            Action<double, double, double, double> include = (x0, x1, y0, y1) =>
+            {
+                minX = Math.Min(minX, x0);
+                maxX = Math.Max(maxX, x1);
+                minY = Math.Min(minY, y0);
+                maxY = Math.Max(maxY, y1);
+                any = true;
+            };
+
+            foreach (var shape in footprint.Shapes)
+            {
+                switch (shape.Kind)
+                {
+                    case EeFpKind.Pad:
+                        if (shape.Points.Count >= 3)
+                        {
+                            var x0 = double.MaxValue; var x1 = double.MinValue;
+                            var y0 = double.MaxValue; var y1 = double.MinValue;
+                            foreach (var point in shape.Points)
+                            {
+                                x0 = Math.Min(x0, point.X); x1 = Math.Max(x1, point.X);
+                                y0 = Math.Min(y0, point.Y); y1 = Math.Max(y1, point.Y);
+                            }
+                            if (x0 <= x1 && y0 <= y1) include(x0, x1, y0, y1);
+                            break;
+                        }
+                        {
+                            var extentX = RotatedExtent(shape.Width / 2.0, shape.Height / 2.0, shape.Rotation, true);
+                            var extentY = RotatedExtent(shape.Width / 2.0, shape.Height / 2.0, shape.Rotation, false);
+                            include(shape.X - extentX, shape.X + extentX,
+                                    shape.Y - extentY, shape.Y + extentY);
+                        }
+                        break;
+
+                    case EeFpKind.Track:
+                        {
+                            var half = Math.Max(shape.StrokeWidth, 0.01) / 2.0;
+                            var x0 = double.MaxValue; var x1 = double.MinValue;
+                            var y0 = double.MaxValue; var y1 = double.MinValue;
+                            foreach (var point in shape.Points)
+                            {
+                                x0 = Math.Min(x0, point.X); x1 = Math.Max(x1, point.X);
+                                y0 = Math.Min(y0, point.Y); y1 = Math.Max(y1, point.Y);
+                            }
+                            if (x0 <= x1 && y0 <= y1) include(x0 - half, x1 + half, y0 - half, y1 + half);
+                        }
+                        break;
+
+                    case EeFpKind.Hole:
+                        include(shape.X - shape.Radius, shape.X + shape.Radius,
+                                shape.Y - shape.Radius, shape.Y + shape.Radius);
+                        break;
+
+                    case EeFpKind.Via:
+                        {
+                            var half = Math.Max(shape.Diameter, 0.01) / 2.0;
+                            include(shape.X - half, shape.X + half, shape.Y - half, shape.Y + half);
+                        }
+                        break;
+
+                    case EeFpKind.Circle:
+                        {
+                            var half = shape.Radius + Math.Max(shape.StrokeWidth, 0.01) / 2.0;
+                            include(shape.X - half, shape.X + half, shape.Y - half, shape.Y + half);
+                        }
+                        break;
+
+                    case EeFpKind.Rectangle:
+                        {
+                            var half = Math.Max(shape.StrokeWidth, 0.01) / 2.0;
+                            var x0 = Math.Min(shape.X, shape.X + shape.Width);
+                            var x1 = Math.Max(shape.X, shape.X + shape.Width);
+                            var y0 = Math.Min(shape.Y, shape.Y + shape.Height);
+                            var y1 = Math.Max(shape.Y, shape.Y + shape.Height);
+                            include(x0 - half, x1 + half, y0 - half, y1 + half);
+                        }
+                        break;
+
+                    case EeFpKind.Arc:
+                        IncludeArcExtents(shape, include);
+                        break;
+
+                    case EeFpKind.Text:
+                        {
+                            var size = Math.Max(shape.FontSize, 0.1);
+                            var halfWidth = size * 0.6 * Math.Max(1, (shape.Text ?? "").Length) / 2.0;
+                            var halfHeight = size / 2.0;
+                            var extentX = RotatedExtent(halfWidth, halfHeight, shape.Rotation, true);
+                            var extentY = RotatedExtent(halfWidth, halfHeight, shape.Rotation, false);
+                            include(shape.X - extentX, shape.X + extentX,
+                                    shape.Y - extentY, shape.Y + extentY);
+                        }
+                        break;
+                }
+            }
+
+            if (!any)
+                return (footprint.BoxX + footprint.BoxWidth / 2.0,
+                        footprint.BoxY + footprint.BoxHeight / 2.0);
+            return ((minX + maxX) / 2.0, (minY + maxY) / 2.0);
+        }
+
+        // 旋转后的半宽（horizontal=true）或半高。
+        private static double RotatedExtent(double halfWidth, double halfHeight, double degrees, bool horizontal)
+        {
+            var radians = degrees * Math.PI / 180.0;
+            var cos = Math.Abs(Math.Cos(radians));
+            var sin = Math.Abs(Math.Sin(radians));
+            return horizontal
+                ? cos * halfWidth + sin * halfHeight
+                : sin * halfWidth + cos * halfHeight;
+        }
+
+        // 圆弧按 24 段采样取外接框；非圆弧路径退回折线点。
+        private static void IncludeArcExtents(
+            EeFpShape shape, Action<double, double, double, double> include)
+        {
+            var half = Math.Max(shape.StrokeWidth, 0.01) / 2.0;
+            try
+            {
+                if (SvgPath.TryGetCircularArc(shape.Path, out var arc))
+                {
+                    var centerX = EeUnits.ToMm(arc.CenterX);
+                    var centerY = EeUnits.ToMm(arc.CenterY);
+                    var radius = EeUnits.ToMm((arc.RadiusX + arc.RadiusY) / 2.0);
+                    const int steps = 24;
+                    for (var i = 0; i <= steps; i++)
+                    {
+                        var angle = (arc.StartAngle + arc.SweepAngle * i / steps) * Math.PI / 180.0;
+                        var x = centerX + radius * Math.Cos(angle);
+                        var y = centerY + radius * Math.Sin(angle);
+                        include(x - half, x + half, y - half, y + half);
+                    }
+                    return;
+                }
+
+                foreach (var sub in SvgPath.Parse(shape.Path, 0.02))
+                {
+                    foreach (var point in sub.Points)
+                    {
+                        var x = EeUnits.ToMm(point.X);
+                        var y = EeUnits.ToMm(point.Y);
+                        include(x - half, x + half, y - half, y + half);
+                    }
+                }
+            }
+            catch
+            {
+                // 路径解析失败时忽略该圆弧，不影响其余图元。
             }
         }
 
@@ -150,12 +322,199 @@ namespace LcscLoader
                 return;
             }
 
+            // AD20 没有多边形焊盘（TShape 最多到圆角矩形），但可以在封装里写铜皮区域：
+            // 用真实轮廓写 Top/Bottom 铜皮，再用一个锚点焊盘承担编号与孔。
+            // 之前失败是因为图元写入没包在 PreProcess/PostProcess 会话内。
+            if (string.Equals(shape.Shape, "POLYGON", StringComparison.OrdinalIgnoreCase) &&
+                shape.Points.Count >= 3 && AddPolygonPad(context, shape, layer))
+                return;
+
             var padShape = PadShape(shape);
 
             var pad = CreatePad(context, shape.X, shape.Y, shape.Width, shape.Height,
                 shape.HoleRadius * 2.0, shape.HoleLength, shape.Number, padShape, layer,
                 shape.Plated, shape.Rotation, SlotAngle(shape));
             Attach(context, pad);
+            ApplyMaskExpansion(pad, shape);
+        }
+
+        // 先建好全部区域再统一挂载：任何一步失败都不留下半成品，避免和近似焊盘叠加。
+        private static bool AddPolygonPad(FpContext context, EeFpShape shape, TV6_Layer layer)
+        {
+            try
+            {
+                var regions = new List<IPCB_Region>();
+                if (layer == TV6_Layer.eV6_MultiLayer)
+                {
+                    regions.Add(BuildRegion(context, TV6_Layer.eV6_TopLayer, shape, 0));
+                    regions.Add(BuildRegion(context, TV6_Layer.eV6_BottomLayer, shape, 0));
+                }
+                else
+                {
+                    regions.Add(BuildRegion(context, layer, shape, 0));
+                }
+
+                // 铜皮区域不会生成阻焊/钢网开窗，按 EasyEDA 的焊盘定义补同形状区域。
+                AddSolderAndPaste(regions, context, layer, shape);
+
+                foreach (var region in regions)
+                {
+                    if (region == null) throw new InvalidOperationException("铜皮轮廓无效");
+                }
+                foreach (var region in regions) Attach(context, region);
+
+                const double anchor = 0.25;
+                var pad = CreatePad(context, shape.X, shape.Y, anchor, anchor,
+                    shape.HoleRadius * 2.0, shape.HoleLength, shape.Number, TShape.eRounded,
+                    layer, shape.Plated, shape.Rotation, SlotAngle(shape));
+                Attach(context, pad);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static IPCB_Region BuildRegion(
+            FpContext context, TV6_Layer layer, EeFpShape shape, double expansionMm)
+        {
+            var points = new List<(double X, double Y)>(shape.Points.Count);
+            foreach (var point in shape.Points)
+            {
+                // shape.Points 已是 mm，且为封装坐标；不能再乘 EeUnits.MmPerUnit。
+                points.Add((context.X(point.X), context.Y(point.Y)));
+            }
+
+            if (Math.Abs(expansionMm) > 1e-6)
+            {
+                var expanded = OffsetPolygon(points, expansionMm);
+                if (expanded == null) return null; // 负向外扩把轮廓压塌：该层不做开窗
+                points = expanded;
+            }
+
+            var region = Create<IPCB_Region>(TObjectId.eRegionObject);
+            if (region == null) throw new InvalidOperationException("无法创建区域对象");
+            region.SetState_Layer(layer);
+
+            var contour = AdApi.PcbServer.Internal_PCBContourFactory() as IPCB_Contour;
+            if (contour == null) throw new InvalidOperationException("无法创建轮廓对象");
+            foreach (var point in points)
+                contour.AddPoint(context.CoordX(point.X), context.CoordY(point.Y));
+            region.SetOutlineContour(contour);
+            return region;
+        }
+
+        // 轮廓等距外扩（delta>0）/内缩（delta<0）：顶点沿角平分线斜接，锐角处限长 5×delta。
+        // 负向外扩后若绕向翻转，说明轮廓已压塌，返回 null。
+        private static List<(double X, double Y)> OffsetPolygon(
+            List<(double X, double Y)> points, double delta)
+        {
+            var cleaned = new List<(double X, double Y)>(points.Count);
+            foreach (var point in points)
+            {
+                if (cleaned.Count > 0)
+                {
+                    var last = cleaned[cleaned.Count - 1];
+                    if (Math.Abs(point.X - last.X) < 1e-6 && Math.Abs(point.Y - last.Y) < 1e-6)
+                        continue;
+                }
+                cleaned.Add(point);
+            }
+            if (cleaned.Count > 1)
+            {
+                var first = cleaned[0];
+                var last = cleaned[cleaned.Count - 1];
+                if (Math.Abs(first.X - last.X) < 1e-6 && Math.Abs(first.Y - last.Y) < 1e-6)
+                    cleaned.RemoveAt(cleaned.Count - 1);
+            }
+            if (cleaned.Count < 3) return null;
+
+            var area = SignedArea(cleaned);
+            if (Math.Abs(area) < 1e-9) return null;
+            var counterClockwise = area > 0;
+
+            var result = new List<(double X, double Y)>(cleaned.Count);
+            var count = cleaned.Count;
+            for (var i = 0; i < count; i++)
+            {
+                var previous = cleaned[(i - 1 + count) % count];
+                var current = cleaned[i];
+                var next = cleaned[(i + 1) % count];
+
+                var d1 = Normalize(current.X - previous.X, current.Y - previous.Y);
+                var d2 = Normalize(next.X - current.X, next.Y - current.Y);
+                if (d1 == null || d2 == null)
+                {
+                    result.Add(current);
+                    continue;
+                }
+
+                // 逆时针时外侧法线为 (dy,-dx)，顺时针取反。
+                var n1X = counterClockwise ? d1.Value.Y : -d1.Value.Y;
+                var n1Y = counterClockwise ? -d1.Value.X : d1.Value.X;
+                var n2X = counterClockwise ? d2.Value.Y : -d2.Value.Y;
+                var n2Y = counterClockwise ? -d2.Value.X : d2.Value.X;
+
+                var bisectorX = n1X + n2X;
+                var bisectorY = n1Y + n2Y;
+                var length = Math.Sqrt(bisectorX * bisectorX + bisectorY * bisectorY);
+                if (length < 1e-9)
+                {
+                    result.Add((current.X + n1X * delta, current.Y + n1Y * delta));
+                    continue;
+                }
+                bisectorX /= length;
+                bisectorY /= length;
+
+                var cosHalf = bisectorX * n1X + bisectorY * n1Y;
+                if (cosHalf < 0.2) cosHalf = 0.2;
+                var miter = delta / cosHalf;
+                result.Add((current.X + bisectorX * miter, current.Y + bisectorY * miter));
+            }
+
+            if (result.Count < 3) return null;
+            var expandedArea = SignedArea(result);
+            if (expandedArea == 0 || (expandedArea > 0) != counterClockwise) return null;
+            return result;
+        }
+
+        private static double SignedArea(List<(double X, double Y)> points)
+        {
+            var sum = 0.0;
+            for (var i = 0; i < points.Count; i++)
+            {
+                var a = points[i];
+                var b = points[(i + 1) % points.Count];
+                sum += a.X * b.Y - b.X * a.Y;
+            }
+            return sum / 2.0;
+        }
+
+        private static (double X, double Y)? Normalize(double x, double y)
+        {
+            var length = Math.Sqrt(x * x + y * y);
+            if (length < 1e-9) return null;
+            return (x / length, y / length);
+        }
+
+        private static void AddSolderAndPaste(
+            List<IPCB_Region> regions, FpContext context, TV6_Layer layer, EeFpShape shape)
+        {
+            if (layer == TV6_Layer.eV6_TopLayer || layer == TV6_Layer.eV6_MultiLayer)
+            {
+                var paste = BuildRegion(context, TV6_Layer.eV6_TopPaste, shape, shape.PasteExpansion);
+                if (paste != null) regions.Add(paste);
+                var solder = BuildRegion(context, TV6_Layer.eV6_TopSolder, shape, shape.SolderExpansion);
+                if (solder != null) regions.Add(solder);
+            }
+            if (layer == TV6_Layer.eV6_BottomLayer || layer == TV6_Layer.eV6_MultiLayer)
+            {
+                var paste = BuildRegion(context, TV6_Layer.eV6_BottomPaste, shape, shape.PasteExpansion);
+                if (paste != null) regions.Add(paste);
+                var solder = BuildRegion(context, TV6_Layer.eV6_BottomSolder, shape, shape.SolderExpansion);
+                if (solder != null) regions.Add(solder);
+            }
         }
 
         private static void AddHole(FpContext context, EeFpShape shape)
@@ -381,6 +740,28 @@ namespace LcscLoader
             if (primitive == null) return;
             context.Component.GetState_Board().AddPCBObject(primitive);
             context.Component.AddPCBObject(primitive);
+        }
+
+        // 立创的焊盘记录自带助焊（钢网）与阻焊扩展值；AD 焊盘默认跟随设计规则，
+        // 这里改成手动值，保证钢网/阻焊开窗与立创一致。
+        private static void ApplyMaskExpansion(IPCB_Pad pad, EeFpShape shape)
+        {
+            if (pad == null) return;
+            try
+            {
+                var cache = pad.GetState_Cache();
+                cache.PasteMaskExpansionValid = TCacheState.eCacheManual;
+                cache.PasteMaskExpansion = AdApi.MmToCoord(shape.PasteExpansion);
+                cache.SolderMaskExpansionValid = TCacheState.eCacheManual;
+                cache.SolderMaskExpansion = AdApi.MmToCoord(shape.SolderExpansion);
+                cache.UseSeparateExpansions = true;
+                cache.SolderMaskBottomExpansion = AdApi.MmToCoord(shape.SolderExpansion);
+                pad.SetState_Cache(cache);
+            }
+            catch (Exception ex)
+            {
+                ImportLog.Add("焊盘 " + shape.Number + " 阻焊/钢网扩展写入失败：" + ex.Message);
+            }
         }
 
         private static void ClearMaskExpansion(IPCB_Pad pad)

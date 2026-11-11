@@ -1,6 +1,8 @@
 # ---- 构建产物 ----
 LcscLoader/bin/
 LcscLoader/tests/bin/
+installer/bin/
+LcscLoader/src/BuildVersion.cs
 bin/
 obj/
 
@@ -11,6 +13,9 @@ _probe/
 _tools/roslyn/
 _tools/net48ref/
 _tools/*.nupkg
+_tools/refs.generated.rsp
+_tools/*.tmp-*/
+_tools/*.bak-*/
 
 # ---- 二进制与中间产物 ----
 *.exe

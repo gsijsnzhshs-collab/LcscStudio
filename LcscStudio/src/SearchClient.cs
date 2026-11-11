@@ -32,9 +32,9 @@ namespace LcscStudio
 
     internal static class SearchClient
     {
-        private const string Version = "6.4.19.5";
-        private static readonly string[] Hosts = { "https://easyeda.com" };
         private static readonly HttpClient Client = CreateClient();
+
+        internal static HttpClient Http => Client;
 
         private static HttpClient CreateClient()
         {
@@ -43,7 +43,10 @@ namespace LcscStudio
             {
                 AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
             };
-            var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+            var client = new HttpClient(handler)
+            {
+                Timeout = TimeSpan.FromSeconds(EeEndpoints.Current.RequestTimeoutSeconds),
+            };
             client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36");
             client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
@@ -57,12 +60,14 @@ namespace LcscStudio
             if (string.IsNullOrWhiteSpace(keyword))
                 return new SearchPage();
 
+            var config = EeEndpoints.Current;
             Exception last = null;
-            foreach (var host in Hosts)
+            foreach (var host in config.SearchHosts)
             {
-                var url = string.Format(
-                    "{0}/api/eda/product/list?keyword={1}&currentPage={2}&pageSize={3}&version={4}",
-                    host, Uri.EscapeDataString(keyword.Trim()), page, pageSize, Version);
+                var path = config.SearchPath;
+                var url = string.Format("{0}{1}{2}keyword={3}&currentPage={4}&pageSize={5}&version={6}",
+                    host, path, path.IndexOf('?') >= 0 ? "&" : "?",
+                    Uri.EscapeDataString(keyword.Trim()), page, pageSize, config.ApiVersion);
                 try
                 {
                     using (var request = new HttpRequestMessage(HttpMethod.Get, url))
@@ -73,25 +78,40 @@ namespace LcscStudio
                         {
                             if (!response.IsSuccessStatusCode)
                             {
-                                last = new InvalidOperationException(
-                                    "搜索接口返回 HTTP " + (int)response.StatusCode);
+                                last = new EeNetworkError("搜索接口返回 HTTP " + (int)response.StatusCode);
                                 continue;
                             }
                             var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                            return Parse(text);
+                            try
+                            {
+                                return Parse(text);
+                            }
+                            catch (EeFormatError)
+                            {
+                                throw;
+                            }
+                            catch (Exception ex)
+                            {
+                                throw new EeFormatError("搜索结果解析失败", ex);
+                            }
                         }
                     }
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException ex)
+                {
+                    if (cancellationToken.IsCancellationRequested) throw;
+                    last = new EeNetworkError("请求超时", ex);
+                }
+                catch (EeFormatError)
                 {
                     throw;
                 }
                 catch (Exception ex)
                 {
-                    last = ex;
+                    last = new EeNetworkError("无法访问立创搜索接口", ex);
                 }
             }
-            throw new InvalidOperationException("无法访问立创搜索接口，请检查网络。", last);
+            throw new EeNetworkError("无法访问立创搜索接口，请检查网络。", last);
         }
 
         private static SearchPage Parse(string json)
@@ -137,6 +157,115 @@ namespace LcscStudio
             }
 
             return result;
+        }
+    }
+
+    // 立创商城商品参数：商品详情页内嵌 paramVOList（属性名 + 参数值），
+    // 例如 阻值 10kΩ、精度 ±1%、功率 100mW。按编号缓存，避免重复下载整页。
+    internal static class LcscProductInfo
+    {
+        private static readonly object CacheLock = new object();
+        private static readonly Dictionary<string, List<KeyValuePair<string, string>>> Cache =
+            new Dictionary<string, List<KeyValuePair<string, string>>>(StringComparer.OrdinalIgnoreCase);
+
+        public static async Task<List<KeyValuePair<string, string>>> LoadParametersAsync(
+            string lcscId, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(lcscId))
+                return new List<KeyValuePair<string, string>>();
+
+            lock (CacheLock)
+            {
+                if (Cache.TryGetValue(lcscId, out var cached)) return cached;
+            }
+
+            var list = new List<KeyValuePair<string, string>>();
+            var url = "https://www.lcsc.com/product-detail/" + Uri.EscapeDataString(lcscId) + ".html";
+            // 商城偶尔会返回一次 403/超时，重试一次再放弃。
+            for (var attempt = 0; attempt < 2 && list.Count == 0; attempt++)
+            {
+                try
+                {
+                    using (var request = new HttpRequestMessage(HttpMethod.Get, url))
+                    {
+                        request.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml");
+                        using (var response = await SearchClient.Http.SendAsync(request, cancellationToken)
+                                   .ConfigureAwait(false))
+                        {
+                            if (!response.IsSuccessStatusCode) continue;
+                            var html = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                            list = Parse(html);
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    if (cancellationToken.IsCancellationRequested) throw;
+                }
+                catch
+                {
+                    // 参数页拿不到时保持空列表，不影响符号/封装预览。
+                }
+            }
+
+            if (list.Count == 0) return list;
+            lock (CacheLock) Cache[lcscId] = list;
+            return list;
+        }
+
+        private static List<KeyValuePair<string, string>> Parse(string html)
+        {
+            var result = new List<KeyValuePair<string, string>>();
+            var array = ExtractArray(html, "\"paramVOList\":");
+            if (array == null) return result;
+            try
+            {
+                foreach (var token in JArray.Parse(array))
+                {
+                    var name = JsonUtil.Str(token["paramName"]).Trim();
+                    var value = JsonUtil.Str(token["paramValue"]).Trim();
+                    if (name.Length == 0 || value.Length == 0) continue;
+                    result.Add(new KeyValuePair<string, string>(name, value));
+                }
+            }
+            catch
+            {
+                // 页面结构变化时宁可不显示，也不把半截 JSON 抛给 UI。
+            }
+            return result;
+        }
+
+        // 从 HTML 中截取紧跟 key 的 JSON 数组文本（按括号配平，跳过字符串里的括号）。
+        private static string ExtractArray(string text, string key)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            var start = text.IndexOf(key, StringComparison.Ordinal);
+            if (start < 0) return null;
+            start = text.IndexOf('[', start + key.Length);
+            if (start < 0) return null;
+
+            var depth = 0;
+            var inString = false;
+            var escape = false;
+            for (var i = start; i < text.Length; i++)
+            {
+                var c = text[i];
+                if (inString)
+                {
+                    if (escape) { escape = false; continue; }
+                    if (c == '\\') { escape = true; continue; }
+                    if (c == '"') inString = false;
+                    continue;
+                }
+                if (c == '"') { inString = true; continue; }
+                if (c == '[') depth++;
+                else if (c == ']')
+                {
+                    depth--;
+                    if (depth == 0) return text.Substring(start, i - start + 1);
+                }
+            }
+            return null;
         }
     }
 }

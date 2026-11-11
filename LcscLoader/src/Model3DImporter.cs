@@ -109,10 +109,10 @@ namespace LcscLoader
                 var originY = EeUnits.ToMm(placement.OriginY);
                 var originZ = EeUnits.ToMm(placement.Z);
 
-                var positionX = originX - footprint.Footprint.BoxX - footprint.Footprint.BoxWidth / 2.0;
-                var positionY = footprint.Footprint.BoxHeight
-                                - (originY - footprint.Footprint.BoxY)
-                                - footprint.Footprint.BoxHeight / 2.0;
+                // 与封装使用同一个参考点（引脚焊盘中心），否则模型会整体偏移。
+                var center = FootprintImporter.ReferenceCenter(footprint.Footprint);
+                var positionX = originX - center.X;
+                var positionY = center.Y - originY;
 
                 var offsetX = positionX - (rotation[0][0] * data.AnchorX + rotation[0][1] * data.AnchorY + rotation[0][2] * data.AnchorZ);
                 var offsetY = positionY - (rotation[1][0] * data.AnchorX + rotation[1][1] * data.AnchorY + rotation[1][2] * data.AnchorZ);

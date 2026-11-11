@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using LcscLoader;
 using Newtonsoft.Json;
 
 namespace LcscStudio
@@ -17,7 +18,6 @@ namespace LcscStudio
         public bool Overwrite = true;
         public bool PlaceAfterImport;
         public int SearchPageSize = 30;
-        public bool DarkPanel = true;
 
         public AppSettings Clone()
         {
@@ -26,8 +26,7 @@ namespace LcscStudio
 
         public static string DefaultLibraryFolder()
         {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AltiumLCSC");
+            return StoragePaths.DefaultLibraryFolder;
         }
 
         public string NewSchLibPath
@@ -88,9 +87,8 @@ namespace LcscStudio
 
     internal static class SettingsStore
     {
-        private static readonly string Folder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LCSCLoader");
-        private static readonly string FilePath = Path.Combine(Folder, "settings.json");
+        private static string Folder => StoragePaths.SettingsDir;
+        private static string FilePath => Path.Combine(Folder, "settings.json");
 
         public static AppSettings Load()
         {

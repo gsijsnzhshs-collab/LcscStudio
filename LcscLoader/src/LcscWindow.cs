@@ -19,7 +19,7 @@ namespace LcscLoader
                 var panel = new PanelForm { Dock = DockStyle.Fill };
                 _form = new ToolForm
                 {
-                    Text = "立创选料",
+                    Text = "LCSC ADesignK",
                     AutoScaleMode = AutoScaleMode.None,
                     Width = 780,
                     Height = 1100,
@@ -28,6 +28,8 @@ namespace LcscLoader
                     ShowInTaskbar = false,
                     StartPosition = FormStartPosition.Manual,
                     MinimizeBox = false,
+                    BackColor = Theme.Back,
+                    Font = Theme.UiFont,
                 };
                 _form.Controls.Add(panel);
                 _form.Show();

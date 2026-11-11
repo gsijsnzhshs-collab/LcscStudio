@@ -11,8 +11,9 @@ namespace LcscStudio
         private readonly AppSettings _draft;
         private readonly ComboBox _pageSize;
         private readonly Label _targetSummary;
-        private CheckBox _darkPanel;
         private CheckBox _overwrite;
+        private readonly Button _ok;
+        private readonly Button _cancel;
 
         public AppSettings Result { get; private set; }
 
@@ -21,14 +22,14 @@ namespace LcscStudio
             _draft = settings.Clone();
             Text = "设置";
             Width = 540;
-            Height = 400;
+            Height = 424;
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            Font = new Font("Microsoft YaHei UI", 9f);
+            Theme.StyleForm(this);
 
-            var searchGroup = new GroupBox { Text = "搜索", Left = 12, Top = 12, Width = 510, Height = 70 };
+            var searchGroup = new SectionPanel("搜索") { Left = 12, Top = 12, Width = 510, Height = 70 };
             searchGroup.Controls.Add(new Label { Text = "每页结果数", Left = 12, Top = 28, Width = 80 });
             _pageSize = new ComboBox { Left = 100, Top = 24, Width = 100, DropDownStyle = ComboBoxStyle.DropDownList };
             _pageSize.Items.AddRange(new object[] { 20, 30, 50, 100 });
@@ -36,7 +37,7 @@ namespace LcscStudio
             searchGroup.Controls.Add(_pageSize);
             Controls.Add(searchGroup);
 
-            var libraryGroup = new GroupBox { Text = "默认下载位置", Left = 12, Top = 90, Width = 510, Height = 100 };
+            var libraryGroup = new SectionPanel("默认下载位置") { Left = 12, Top = 90, Width = 510, Height = 100 };
             _targetSummary = new Label
             {
                 Left = 12,
@@ -51,29 +52,18 @@ namespace LcscStudio
             libraryGroup.Controls.Add(change);
             Controls.Add(libraryGroup);
 
-            var themeBox = new CheckBox
-            {
-                Text = "深色面板（与 AD 风格一致）",
-                Left = 24,
-                Top = 205,
-                Width = 240,
-                Checked = _draft.DarkPanel,
-            };
-            Controls.Add(themeBox);
-            _darkPanel = themeBox;
-
             var overwriteBox = new CheckBox
             {
                 Text = "覆盖库中已存在的同名器件",
-                Left = 272,
+                Left = 24,
                 Top = 205,
-                Width = 230,
+                Width = 300,
                 Checked = _draft.Overwrite,
             };
             Controls.Add(overwriteBox);
             _overwrite = overwriteBox;
 
-            var cacheGroup = new GroupBox { Text = "缓存", Left = 12, Top = 236, Width = 510, Height = 90 };
+            var cacheGroup = new SectionPanel("缓存") { Left = 12, Top = 236, Width = 510, Height = 90 };
             cacheGroup.Controls.Add(new Label
             {
                 Text = PartCache.Root,
@@ -87,12 +77,27 @@ namespace LcscStudio
             cacheGroup.Controls.Add(openCache);
             Controls.Add(cacheGroup);
 
-            var ok = new Button { Text = "确定", Left = 336, Top = 336, Width = 84, Height = 28 };
-            var cancel = new Button { Text = "取消", Left = 428, Top = 336, Width = 84, Height = 28 };
-            ok.Click += (s, e) => Confirm();
-            cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
-            Controls.Add(ok);
-            Controls.Add(cancel);
+            _ok = new Button { Text = "确定", Left = 346, Top = 340, Width = 84, Height = 28 };
+            _cancel = new Button { Text = "取消", Left = 438, Top = 340, Width = 84, Height = 28 };
+            _ok.Click += (s, e) => Confirm();
+            _cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
+            // 与“下载位置”保持一致：回车 = 确定，Esc = 取消。
+            // 没有这两行时，设置框按回车/Esc 都没有反应（实测）。
+            AcceptButton = _ok;
+            CancelButton = _cancel;
+            Controls.Add(_ok);
+            Controls.Add(_cancel);
+            Theme.ApplyRecursive(this);
+            Theme.StyleButton(_ok, true);
+            Theme.ApplyButtons(this, _ok);
+            Theme.ScaleFormToDpi(this);
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            // 中文输入法的浮动条钉在工作区右下角，显示前把按钮行挪出那一带。
+            Theme.PlaceDialog(this, Rectangle.Union(_ok.Bounds, _cancel.Bounds));
         }
 
         private void ChangeTarget()
@@ -122,7 +127,6 @@ namespace LcscStudio
         {
             if (_pageSize.SelectedItem != null)
                 _draft.SearchPageSize = (int)_pageSize.SelectedItem;
-            _draft.DarkPanel = _darkPanel.Checked;
             _draft.Overwrite = _overwrite.Checked;
 
             Result = _draft;

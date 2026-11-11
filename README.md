@@ -3,8 +3,8 @@
 在 Altium Designer 内以停靠面板（标题 `LCSC ADesignK`）搜索立创商城元件，
 预览符号 / 封装 / 3D / 商品参数，并一键导入到当前原理图库、PCB 库或直接放置到原理图。
 
-- 当前版本：`1.0.3.0`（唯一版本源：[version.json](version.json)）
-- 已验证版本：Altium Designer 20.0.13（详见 [docs/compat-matrix.md](docs/compat-matrix.md)）
+- 当前版本：`1.1.0.0`（唯一版本源：[version.json](version.json)）
+- 已验证版本：Altium Designer 20.0.13、**AD22 (22.9.1)**（详见 [docs/compat-matrix.md](docs/compat-matrix.md)）
 - 平台：Windows / .NET Framework 4.8（由 AD 宿主加载，无需单独运行时）
 
 ## 功能
@@ -67,17 +67,27 @@ SDK 解析优先级：`--sdk-dir` > 环境变量 `AD_SDK_DIR` > 自动探测（�
 
 ## 部署与安装
 
-方式一：一键安装器（推荐给使用者）
+### 方式一：安装器（Release 包自带，推荐给使用者）
+
+从 [GitHub Releases](https://github.com/gsijsnzhshs-collab/LcscStudio/releases) 下载 `LcscLoader-vX.X.X.X.zip`，解压到任意目录：
 
 ```
-node installer/build.js        # 需先构建 LcscLoader
-installer/bin/LcscSetup.exe    # 图形界面安装，可自动识别 AD 版本与路径
+LcscSetup.exe          # 图形化安装器（双击即用，内嵌 payload，无需外部文件）
+LcscLoader.dll         # 插件主程序集
+LCSCLoader.Ins         # 面板视图注册清单
+build-info.json        # 构建元数据（版本、sha256、git commit）
 ```
 
-安装器支持命令行：`--list`、`--install`、`--uninstall`、`--out <file>`。
+关闭所有 Altium Designer 进程（`X2.EXE`），双击 `LcscSetup.exe`：
+- 自动探测本机已安装的所有 AD 版本（支持多版本并存）
+- 勾选「自定义用户数据目录」可让插件运行时产生的所有数据
+  （plugin.log / 3D 缓存 / settings.json / 新建库）统一落到用户指定的路径下
+- 不勾则使用系统默认路径（`%USERPROFILE%\Documents\AltiumLCSC` 等），完全向后兼容
+
+安装器也支持命令行：`--list`、`--install <System目录>`、`--uninstall <System目录>`、`--out <file>`。
 安装前会备份原有文件并保留最近 3 份，AD 运行中会拒绝覆盖。
 
-方式二：脚本部署（开发调试）
+### 方式二：脚本部署（开发调试）
 
 ```
 node LcscLoader/deploy.js --target system         # 或 --target programdata
@@ -108,16 +118,52 @@ node LcscLoader/tests/build.js --no-run
 
 - `version.json` 是唯一版本源，驱动 `AssemblyVersion`、`.Ins` 的 Version/Date 与部署校验。
 - 构建会生成 `LcscLoader/bin/build-info.json`，安装器从该文件读取版本与产物哈希。
+- GitHub Release 自动附带 zip（含 DLL / Ins / build-info / LcscSetup.exe），详见 [Releases 页面](https://github.com/gsijsnzhshs-collab/LcscStudio/releases)。
+
+## 路径配置（StoragePaths）
+
+v1.1.0.0 起，插件所有运行时数据路径统一由 `StoragePaths` 控制。**默认安装**不写任何配置文件，使用 .NET SpecialFolder：
+
+| 资源 | 默认路径 |
+|---|---|
+| plugin.log | `%USERPROFILE%\Documents\AltiumLCSC\plugin.log` |
+| 3D 缓存（*.obj / *.step） | `%LOCALAPPDATA%\LCSCLoader\cache\obj\`、`cache\step\` |
+| settings.json | `%APPDATA%\LCSCLoader\settings.json` |
+| 默认新建库 | `%USERPROFILE%\Documents\AltiumLCSC\LCSC.SchLib` / `LCSC.PcbLib` |
+
+**自定义路径**两种方式：
+
+1. **安装器**（推荐）：勾选「自定义用户数据目录」→ 选择根目录（如 `D:\LCSCLoader`）。
+   安装器会在 AD System 目录（与 `LcscLoader.dll` 同位置）写一份 `paths.json`，
+   插件启动自动读取并把所有数据落到根目录下的 `logs/`、`cache/`、`settings/`、`libraries/` 子目录。
+
+2. **手动放 paths.json**：高级用户可以直接在 AD System 目录创建：
+
+```json
+{
+  "logDir": "D:\\LCSCLoader\\logs",
+  "cacheDir": "D:\\LCSCLoader\\cache",
+  "settingsDir": "D:\\LCSCLoader\\settings",
+  "libraryDir": "D:\\LCSCLoader\\libraries"
+}
+```
+
+四个字段**全选或全不选**，缺任何一个都会回退到默认值。卸载插件时 `paths.json` 会被同步清理。
 
 ## 兼容性
 
 | AD 版本 | 状态 |
 |---|---|
 | AD20 (20.0.13) | 全部检查项 PASS |
-| AD22 | 待测（需另一台机器，步骤见兼容矩阵） |
+| AD22 (22.9.1) | 全部检查项 PASS |
+| AD22 (22.0.2) | 导入链路 PASS（已修复 ShowDocument RPC_E_SERVERFAULT 误报） |
 | AD24 / AD25 | 未执行（本机无环境） |
 
-已知限制：重启 AD 后面板不自动展开，仅保留右侧折叠按钮（点击后按默认宽度展开）。
+已知限制：
+- 重启 AD 后面板不自动展开，仅保留右侧折叠按钮（点击后按默认宽度展开）
+- easyeda.com 最近对 `/api/products/{lcsc}/components` 返回 **CloudFront 403**（接口限流），只剩 `lceda.cn` 主机部分可用；已下架/索引残留的料号会返回 `success=false, code=404`，插件面板显示"抓取失败：未找到器件"后继续下一件，不影响其他料号
+- `tools/restore-tools.js` 在 Windows PowerShell 5 下解压 `.nupkg` 时 `Expand-Archive` 会因扩展名白名单拒绝，绕过方式：手动用 Python `zipfile` 解压到 `_tools/<name>/` 即可
+
 完整矩阵与复现步骤：[docs/compat-matrix.md](docs/compat-matrix.md)。
 
 ## 说明

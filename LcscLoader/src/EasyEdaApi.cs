@@ -13,11 +13,6 @@ namespace LcscLoader
 {
     internal static class EasyEdaApi
     {
-        private const string ComponentVersion = "6.4.19.5";
-
-        private static readonly string[] ApiHosts = { "https://easyeda.com", "https://lceda.cn" };
-        private static readonly string[] ModuleHosts = { "https://modules.easyeda.com", "https://modules.lceda.cn" };
-
         private static readonly HttpClient Client = CreateClient();
         private static readonly HttpClient DownloadClient = CreateDownloadClient();
 
@@ -29,7 +24,10 @@ namespace LcscLoader
                 AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
                 UseCookies = true,
             };
-            var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+            var client = new HttpClient(handler)
+            {
+                Timeout = TimeSpan.FromSeconds(EeEndpoints.Current.RequestTimeoutSeconds),
+            };
             client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36");
             client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
@@ -43,7 +41,10 @@ namespace LcscLoader
             {
                 AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
             };
-            var client = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(3) };
+            var client = new HttpClient(handler)
+            {
+                Timeout = TimeSpan.FromSeconds(EeEndpoints.Current.DownloadTimeoutSeconds),
+            };
             client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36");
             client.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "*/*");
@@ -55,11 +56,12 @@ namespace LcscLoader
             if (string.IsNullOrWhiteSpace(lcscId))
                 throw new ArgumentException("未提供立创编号", nameof(lcscId));
 
+            var config = EeEndpoints.Current;
             Exception last = null;
-            foreach (var host in ApiHosts)
+            foreach (var host in config.ApiHosts)
             {
-                var url = string.Format("{0}/api/products/{1}/components?version={2}",
-                    host, lcscId.Trim(), ComponentVersion);
+                var path = config.ProductPath.Replace("{lcsc}", Uri.EscapeDataString(lcscId.Trim()));
+                var url = host + WithVersion(path, config.ApiVersion);
                 try
                 {
                     using (var request = new HttpRequestMessage(HttpMethod.Get, url))
@@ -68,32 +70,73 @@ namespace LcscLoader
                         request.Headers.TryAddWithoutValidation("Origin", host);
                         using (var response = await Client.SendAsync(request, cancellationToken).ConfigureAwait(false))
                         {
+                            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                             if (!response.IsSuccessStatusCode)
                             {
-                                last = new InvalidOperationException(
-                                    string.Format("立创商城接口返回 HTTP {0}（{1}）", (int)response.StatusCode, url));
+                                last = (int)response.StatusCode == 404
+                                    ? (Exception)new EeNotFoundError("未找到器件 " + lcscId.Trim())
+                                    : new EeNetworkError(string.Format("接口返回 HTTP {0}", (int)response.StatusCode));
                                 continue;
                             }
-                            return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                            // easyeda.com / lceda.cn 常在 HTTP 200 里塞 success:false + code:404 表示"查无此元件"
+                            try
+                            {
+                                var root = Newtonsoft.Json.Linq.JObject.Parse(body);
+                                var ok = (bool?)root["success"];
+                                var code = (int?)root["code"];
+                                if (ok == false && code == 404)
+                                {
+                                    last = (Exception)new EeNotFoundError("未找到器件 " + lcscId.Trim());
+                                    continue;
+                                }
+                                if (ok == false)
+                                {
+                                    var msg = (string)root["message"] ?? "未知错误";
+                                    last = new EeNetworkError(host + " 返回 success=false：" + msg);
+                                    continue;
+                                }
+                            }
+                            catch
+                            {
+                                // 不是 JSON，直接返回
+                            }
+                            return body;
                         }
                     }
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException ex)
                 {
-                    throw;
+                    if (cancellationToken.IsCancellationRequested) throw;
+                    last = new EeNetworkError("请求超时", ex);
                 }
                 catch (Exception ex)
                 {
-                    last = ex;
+                    last = new EeNetworkError("无法访问立创商城接口", ex);
                 }
             }
-            throw new InvalidOperationException("无法访问立创商城接口，请检查网络。", last);
+            if (last is EeNotFoundError) throw last;
+            throw new EeNetworkError("无法访问立创商城接口，请检查网络。", last);
         }
 
         public static async Task<LcscPart> GetPartAsync(string lcscId, CancellationToken cancellationToken)
         {
             var json = await GetPartJsonAsync(lcscId, cancellationToken).ConfigureAwait(false);
-            return EasyEdaParser.Parse(lcscId.Trim(), json);
+            try
+            {
+                return EasyEdaParser.Parse(lcscId.Trim(), json);
+            }
+            catch (EeNotFoundError)
+            {
+                throw;
+            }
+            catch (EeFormatError)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new EeFormatError("器件数据解析失败", ex);
+            }
         }
 
         // Tries to obtain the STEP model. The identifier may be an EasyEDA 3D library
@@ -102,9 +145,10 @@ namespace LcscLoader
         {
             if (string.IsNullOrWhiteSpace(uuid)) return null;
             uuid = uuid.Trim();
+            var config = EeEndpoints.Current;
 
             var direct = await TryDownloadFromModulesAsync(
-                "/qAxj6KHrDKw4blvCG8QJPs7Y/" + Uri.EscapeDataString(uuid), cancellationToken)
+                config.StepPath.Replace("{uuid}", Uri.EscapeDataString(uuid)), cancellationToken)
                 .ConfigureAwait(false);
             if (IsStep(direct)) return direct;
 
@@ -113,7 +157,7 @@ namespace LcscLoader
                 return IsStep(direct) ? direct : null;
 
             var fromAsset = await TryDownloadFromModulesAsync(
-                "/qAxj6KHrDKw4blvCG8QJPs7Y/" + Uri.EscapeDataString(asset), cancellationToken)
+                config.StepPath.Replace("{uuid}", Uri.EscapeDataString(asset)), cancellationToken)
                 .ConfigureAwait(false);
             if (IsStep(fromAsset)) return fromAsset;
 
@@ -124,9 +168,11 @@ namespace LcscLoader
         {
             if (string.IsNullOrWhiteSpace(uuid)) return null;
             uuid = uuid.Trim();
+            var config = EeEndpoints.Current;
 
             var direct = await TryDownloadFromModulesAsync(
-                "/3dmodel/" + Uri.EscapeDataString(uuid), cancellationToken).ConfigureAwait(false);
+                config.ObjPath.Replace("{uuid}", Uri.EscapeDataString(uuid)),
+                cancellationToken).ConfigureAwait(false);
             if (IsObj(direct)) return direct;
 
             var asset = await ResolveAssetUuidAsync(uuid, cancellationToken).ConfigureAwait(false);
@@ -134,15 +180,17 @@ namespace LcscLoader
                 return IsObj(direct) ? direct : null;
 
             var fromAsset = await TryDownloadFromModulesAsync(
-                "/3dmodel/" + Uri.EscapeDataString(asset), cancellationToken).ConfigureAwait(false);
+                config.ObjPath.Replace("{uuid}", Uri.EscapeDataString(asset)),
+                cancellationToken).ConfigureAwait(false);
             return IsObj(fromAsset) ? fromAsset : (IsObj(direct) ? direct : null);
         }
 
         private static async Task<string> ResolveAssetUuidAsync(string uuid, CancellationToken cancellationToken)
         {
-            foreach (var host in ApiHosts)
+            var config = EeEndpoints.Current;
+            foreach (var host in config.ApiHosts)
             {
-                var url = host + "/api/components/" + Uri.EscapeDataString(uuid);
+                var url = host + config.ComponentPath.Replace("{uuid}", Uri.EscapeDataString(uuid));
                 try
                 {
                     using (var request = new HttpRequestMessage(HttpMethod.Get, url))
@@ -176,7 +224,8 @@ namespace LcscLoader
                 }
                 catch (OperationCanceledException)
                 {
-                    throw;
+                    if (cancellationToken.IsCancellationRequested) throw;
+                    // 超时：尝试下一个 host。
                 }
                 catch
                 {
@@ -188,7 +237,7 @@ namespace LcscLoader
 
         private static async Task<byte[]> TryDownloadFromModulesAsync(string path, CancellationToken cancellationToken)
         {
-            foreach (var host in ModuleHosts)
+            foreach (var host in EeEndpoints.Current.ModuleHosts)
             {
                 try
                 {
@@ -201,7 +250,8 @@ namespace LcscLoader
                 }
                 catch (OperationCanceledException)
                 {
-                    throw;
+                    if (cancellationToken.IsCancellationRequested) throw;
+                    // 超时：尝试下一个 host。
                 }
                 catch
                 {
@@ -209,6 +259,11 @@ namespace LcscLoader
                 }
             }
             return null;
+        }
+
+        private static string WithVersion(string path, string version)
+        {
+            return path + (path.IndexOf('?') >= 0 ? "&" : "?") + "version=" + version;
         }
 
         private static bool IsStep(byte[] bytes)

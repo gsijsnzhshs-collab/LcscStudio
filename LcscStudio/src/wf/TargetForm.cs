@@ -20,6 +20,8 @@ namespace LcscStudio
         private readonly CheckBox _overwrite;
         private readonly CheckBox _place;
         private readonly Label _preview;
+        private readonly Button _ok;
+        private readonly Button _cancel;
 
         public AppSettings Result { get; private set; }
 
@@ -28,14 +30,17 @@ namespace LcscStudio
             _draft = settings.Clone();
             Text = "下载位置";
             Width = 620;
-            Height = 470;
+            // 底部多留 44px：中文输入法的候选条是浮层，会盖住窗口右下角，
+            // 原来按钮离底边只有 ~17px，“确定”经常点不到。加大安全边距后
+            // 候选条只压到空白区；同时下面设置 AcceptButton，直接回车也能确认。
+            Height = 540;
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
-            Font = new Font("Microsoft YaHei UI", 9f);
+            Theme.StyleForm(this);
 
-            var libraryGroup = new GroupBox { Text = "库文件位置", Left = 12, Top = 12, Width = 590, Height = 300 };
+            var libraryGroup = new SectionPanel("库文件位置") { Left = 12, Top = 12, Width = 590, Height = 300 };
             Controls.Add(libraryGroup);
 
             _newMode = new RadioButton
@@ -56,7 +61,7 @@ namespace LcscStudio
             libraryGroup.Controls.Add(browseFolder);
 
             libraryGroup.Controls.Add(new Label { Text = "文件名", Left = 24, Top = 84, Width = 50 });
-            _name = new TextBox { Left = 70, Top = 80, Width = 200, Text = _draft.NewLibraryName };
+            _name = new TextBox { Left = 80, Top = 80, Width = 190, Text = _draft.NewLibraryName };
             libraryGroup.Controls.Add(_name);
             libraryGroup.Controls.Add(new Label
             {
@@ -66,7 +71,7 @@ namespace LcscStudio
                 Width = 160,
                 ForeColor = Color.Gray,
             });
-            _preview = new Label { Left = 70, Top = 110, Width = 480, Height = 36, ForeColor = Color.Gray };
+            _preview = new Label { Left = 80, Top = 110, Width = 470, Height = 36, ForeColor = Color.Gray };
             libraryGroup.Controls.Add(_preview);
 
             _mergeMode = new RadioButton
@@ -93,7 +98,7 @@ namespace LcscStudio
             browsePcb.Click += (s, e) => BrowseFile(_mergePcb, "PcbLib");
             libraryGroup.Controls.Add(browsePcb);
 
-            var optionsGroup = new GroupBox { Text = "导入内容", Left = 12, Top = 320, Width = 590, Height = 80 };
+            var optionsGroup = new SectionPanel("导入内容") { Left = 12, Top = 320, Width = 590, Height = 80 };
             Controls.Add(optionsGroup);
             _symbol = new CheckBox { Text = "原理图符号", Left = 12, Top = 22, Width = 100, Checked = _draft.ImportSymbol };
             _footprint = new CheckBox { Text = "PCB 封装", Left = 120, Top = 22, Width = 90, Checked = _draft.ImportFootprint };
@@ -106,12 +111,18 @@ namespace LcscStudio
             optionsGroup.Controls.Add(_overwrite);
             optionsGroup.Controls.Add(_place);
 
-            var ok = new Button { Text = "确定", Left = 424, Top = 408, Width = 84, Height = 28 };
-            var cancel = new Button { Text = "取消", Left = 516, Top = 408, Width = 84, Height = 28 };
-            ok.Click += (s, e) => Confirm();
-            cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
-            Controls.Add(ok);
-            Controls.Add(cancel);
+            _ok = new Button { Text = "确定", Left = 426, Top = 430, Width = 84, Height = 28 };
+            _cancel = new Button { Text = "取消", Left = 518, Top = 430, Width = 84, Height = 28 };
+            _ok.Click += (s, e) => Confirm();
+            _cancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
+            // 回车 = 确定，Esc = 取消；输入法候选条打开时回车先被输入法吃掉，不会误确认。
+            AcceptButton = _ok;
+            CancelButton = _cancel;
+            Controls.Add(_ok);
+            Controls.Add(_cancel);
+            Theme.ApplyRecursive(this);
+            Theme.StyleButton(_ok, true);
+            Theme.ApplyButtons(this, _ok);
 
             _newMode.CheckedChanged += (s, e) => UpdateMode();
             _mergeMode.CheckedChanged += (s, e) => UpdateMode();
@@ -123,6 +134,14 @@ namespace LcscStudio
                 if (!_footprint.Checked) _model.Checked = false;
             };
             UpdateMode();
+            Theme.ScaleFormToDpi(this);
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            // 中文输入法的浮动条钉在工作区右下角，显示前把按钮行挪出那一带。
+            Theme.PlaceDialog(this, Rectangle.Union(_ok.Bounds, _cancel.Bounds));
         }
 
         private void UpdateMode()

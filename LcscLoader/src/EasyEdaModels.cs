@@ -48,6 +48,7 @@ namespace LcscLoader
     {
         public string Name = "";
         public string Prefix = "U?";
+        public int SubPartNo = 1;
         public double OriginX;
         public double OriginY;
         public readonly List<EeSymShape> Shapes = new List<EeSymShape>();
@@ -63,6 +64,8 @@ namespace LcscLoader
         public double X, Y, Width, Height, Rotation;
         public double Radius, StrokeWidth, HoleRadius, HoleLength, Diameter;
         public double FontSize;
+        public double PasteExpansion;
+        public double SolderExpansion;
         public string LayerId = "";
         public string Number = "";
         public string Net = "";
@@ -104,8 +107,39 @@ namespace LcscLoader
         public string ManufacturerPart = "";
         public string SupplierPart = "";
         public EeSymbol Symbol = new EeSymbol();
+        // 多部件器件（如带独立电源符号的 MCU）按 subpart_no 排列，单部件时只含第 1 项。
+        public readonly List<EeSymbol> SymbolParts = new List<EeSymbol>();
         public EeFootprint Footprint = new EeFootprint();
         public readonly List<KeyValuePair<string, string>> Parameters = new List<KeyValuePair<string, string>>();
+    }
+
+    // 解析格式守卫：字段不足、未知图元或分段异常时记一行日志，
+    // 避免上游字段变动导致静默错位；日志失败不影响解析。
+    internal static class EeFormatLog
+    {
+        // 供离线回归测试断言：正常器件应保持 0。
+        public static int Skips;
+
+        public static void Reset()
+        {
+            Skips = 0;
+        }
+
+        public static void Skip(string source, string code, int fields, string raw, string reason)
+        {
+            try
+            {
+                Skips++;
+                var text = raw ?? "";
+                if (text.Length > 120) text = text.Substring(0, 120) + "…";
+                PluginLog.Write("[format] " + source + " 跳过 " + code + " 字段=" + fields +
+                                " " + reason + " raw=" + text);
+            }
+            catch
+            {
+                // 日志写入失败不能中断解析。
+            }
+        }
     }
 
     internal static class EasyEdaParser
@@ -115,7 +149,7 @@ namespace LcscLoader
             var root = JObject.Parse(json);
             var component = JsonUtil.Obj(root["result"]);
             if (!component.HasValues)
-                throw new InvalidOperationException("EasyEDA 返回了空器件数据");
+                throw new EeNotFoundError("未找到器件 " + lcscId);
 
             var part = new LcscPart { LcscId = lcscId };
             part.Title = JsonUtil.Str(component["title"], lcscId);
@@ -125,22 +159,24 @@ namespace LcscLoader
             var symbol = JsonUtil.Obj(ParseDocument(component["dataStr"]));
             var symbolHead = JsonUtil.Obj(symbol["head"]);
             var symbolParams = JsonUtil.Obj(symbolHead["c_para"]);
-            part.Symbol.Name = JsonUtil.Str(symbolParams["name"], part.Title);
-            part.Symbol.Prefix = JsonUtil.Str(symbolParams["pre"], "U?");
-            part.Symbol.OriginX = JsonUtil.Num(symbolHead["x"]);
-            part.Symbol.OriginY = JsonUtil.Num(symbolHead["y"]);
+            part.Symbol = ParseSymbol(symbol, part.Title, "U?");
+            part.SymbolParts.Add(part.Symbol);
             part.Manufacturer = JsonUtil.Str(symbolParams["Manufacturer"]);
             part.ManufacturerPart = JsonUtil.Str(symbolParams["Manufacturer Part"]);
             part.SupplierPart = JsonUtil.Str(symbolParams["Supplier Part"], part.SupplierPart);
 
-            foreach (var token in JsonUtil.Arr(symbol["shape"]))
+            // 多部件器件把每个子部件的符号单独放在 subparts 里；第 1 部件与 dataStr 重复。
+            var subparts = JsonUtil.Arr(component["subparts"]);
+            if (subparts.Count > 1)
             {
-                var raw = token.Type == JTokenType.String ? (string)token : token.ToString();
-                if (string.IsNullOrWhiteSpace(raw)) continue;
-                if (raw.StartsWith("P~", StringComparison.Ordinal))
-                    ParsePin(raw, part.Symbol);
-                else
-                    ParseSymbolShape(raw, part.Symbol);
+                part.SymbolParts.Clear();
+                foreach (var sub in subparts)
+                {
+                    var doc = JsonUtil.Obj(ParseDocument(sub["dataStr"]));
+                    part.SymbolParts.Add(ParseSymbol(doc, part.Title, part.Symbol.Prefix));
+                }
+                part.SymbolParts.Sort((a, b) => a.SubPartNo.CompareTo(b.SubPartNo));
+                part.Symbol = part.SymbolParts[0];
             }
 
             var package = JsonUtil.Obj(component["packageDetail"]);
@@ -162,6 +198,7 @@ namespace LcscLoader
                 var raw = token.Type == JTokenType.String ? (string)token : token.ToString();
                 var fields = JsonUtil.Split(raw, '~');
                 if (fields.Length >= 2) part.Footprint.Layers[fields[0]] = fields[1];
+                else EeFormatLog.Skip("layer", fields.Length > 0 ? fields[0] : "?", fields.Length, raw, "层记录字段不足");
             }
 
             foreach (var token in JsonUtil.Arr(footprintDoc["shape"]))
@@ -202,15 +239,27 @@ namespace LcscLoader
             var text = (string)token;
             if (string.IsNullOrWhiteSpace(text)) return new JObject();
             try { return JObject.Parse(text); }
-            catch { return new JObject(); }
+            catch
+            {
+                EeFormatLog.Skip("document", "JSON", 0, text, "无法解析为 JSON");
+                return new JObject();
+            }
         }
 
         private static void ParsePin(string raw, EeSymbol symbol)
         {
             var segments = raw.Split(new[] { "^^" }, StringSplitOptions.None);
-            if (segments.Length < 5) return;
+            if (segments.Length < 5)
+            {
+                EeFormatLog.Skip("pin", "P", segments.Length, raw, "分段不足 5");
+                return;
+            }
             var head = JsonUtil.Split(segments[0], '~');
-            if (head.Length < 8) return;
+            if (head.Length < 8)
+            {
+                EeFormatLog.Skip("pin", "P", head.Length, raw, "头部字段不足 8");
+                return;
+            }
 
             var pin = new EePin
             {
@@ -256,10 +305,63 @@ namespace LcscLoader
             return fallback;
         }
 
+        // 各图元要求的最小字段数；低于此值说明上游记录被截断。
+        private static readonly Dictionary<string, int> SymbolMinimumFields = new Dictionary<string, int>
+        {
+            { "R", 12 }, { "C", 10 }, { "E", 11 }, { "A", 4 },
+            { "PL", 7 }, { "PG", 7 }, { "PT", 6 }, { "T", 13 },
+        };
+
+        private static readonly Dictionary<string, int> FootprintMinimumFields = new Dictionary<string, int>
+        {
+            { "PAD", 12 }, { "TRACK", 5 }, { "HOLE", 4 }, { "VIA", 6 }, { "CIRCLE", 6 },
+            { "ARC", 5 }, { "RECT", 9 }, { "TEXT", 14 }, { "SVGNODE", 2 },
+        };
+
+        private static bool CheckFields(string source, string[] parts, string raw,
+                                        Dictionary<string, int> minimums)
+        {
+            if (!minimums.TryGetValue(parts[0], out var minimum) || parts.Length >= minimum) return true;
+            EeFormatLog.Skip(source, parts[0], parts.Length, raw, "需要至少 " + minimum + " 项");
+            return false;
+        }
+
+        private static EeSymbol ParseSymbol(JToken doc, string fallbackName, string fallbackPrefix)
+        {
+            var symbol = new EeSymbol();
+            var head = JsonUtil.Obj(doc["head"]);
+            var pars = JsonUtil.Obj(head["c_para"]);
+            symbol.Name = JsonUtil.Str(pars["name"], fallbackName);
+            symbol.Prefix = CleanPrefix(JsonUtil.Str(pars["pre"], fallbackPrefix));
+            symbol.SubPartNo = (int)JsonUtil.Num(pars["subpart_no"], 1);
+            symbol.OriginX = JsonUtil.Num(head["x"]);
+            symbol.OriginY = JsonUtil.Num(head["y"]);
+
+            foreach (var token in JsonUtil.Arr(doc["shape"]))
+            {
+                var raw = token.Type == JTokenType.String ? (string)token : token.ToString();
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                if (raw.StartsWith("P~", StringComparison.Ordinal))
+                    ParsePin(raw, symbol);
+                else
+                    ParseSymbolShape(raw, symbol);
+            }
+            return symbol;
+        }
+
+        // EasyEDA 多部件位号写成 “U?.2”，AD 的部件后缀由软件生成，这里只保留 “U?”。
+        private static string CleanPrefix(string prefix)
+        {
+            if (string.IsNullOrWhiteSpace(prefix)) return "U?";
+            var match = Regex.Match(prefix, @"^(.*)\.\d+$");
+            return match.Success ? match.Groups[1].Value : prefix;
+        }
+
         private static void ParseSymbolShape(string raw, EeSymbol symbol)
         {
             var parts = JsonUtil.Split(raw, '~');
             if (parts.Length == 0) return;
+            if (!CheckFields("symbol", parts, raw, SymbolMinimumFields)) return;
             switch (parts[0])
             {
                 case "R":
@@ -297,7 +399,8 @@ namespace LcscLoader
                     symbol.Shapes.Add(new EeSymShape
                     {
                         Kind = EeSymKind.Arc, Path = parts[1],
-                        Stroke = parts[3], StrokeWidth = Num(parts[4]), Fill = "none",
+                        Stroke = parts[3], StrokeWidth = parts.Length > 4 ? Num(parts[4]) : 1,
+                        Fill = "none",
                     });
                     break;
                 case "PL":
@@ -327,6 +430,9 @@ namespace LcscLoader
                         Text = parts[12], Anchor = parts.Length > 14 ? parts[14] : "start",
                     });
                     break;
+                default:
+                    EeFormatLog.Skip("symbol", parts[0], parts.Length, raw, "未知图元");
+                    break;
             }
         }
 
@@ -341,6 +447,7 @@ namespace LcscLoader
         {
             var parts = JsonUtil.Split(raw, '~');
             if (parts.Length == 0) return;
+            if (!CheckFields("footprint", parts, raw, FootprintMinimumFields)) return;
             switch (parts[0])
             {
                 case "PAD":
@@ -355,6 +462,9 @@ namespace LcscLoader
                             HoleRadius = EeUnits.ToMm(Num(parts[9])),
                             Rotation = Num(parts[11]),
                             HoleLength = parts.Length > 13 ? EeUnits.ToMm(Num(parts[13])) : 0,
+                            // PAD 记录 18/19 项依次为助焊（钢网）与阻焊扩展，单位同为 10mil。
+                            PasteExpansion = ReadExpansion(parts, 17, 0),
+                            SolderExpansion = ReadExpansion(parts, 18, DefaultSolderExpansionMm),
                             Plated = parts.Length > 15 ? JsonUtil.Flag(new JValue(parts[15]), true) : true,
                         };
                         pad.Points.AddRange(ParsePoints(parts[10]));
@@ -433,6 +543,9 @@ namespace LcscLoader
                         Displayed = parts.Length > 12 ? JsonUtil.Flag(new JValue(parts[12]), true) : true,
                     });
                     break;
+                case "SOLIDREGION":
+                    // EasyEDA 的实心区域/挖空图元，当前版本不渲染，也不记“未知图元”。
+                    break;
                 case "SVGNODE":
                     if (parts.Length < 2) return;
                     try
@@ -464,6 +577,9 @@ namespace LcscLoader
                         // A malformed model node must not discard the rest of the footprint.
                     }
                     break;
+                default:
+                    EeFormatLog.Skip("footprint", parts[0], parts.Length, raw, "未知图元");
+                    break;
             }
         }
 
@@ -471,6 +587,8 @@ namespace LcscLoader
         {
             if (string.IsNullOrWhiteSpace(raw)) yield break;
             var values = raw.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (values.Length % 2 != 0)
+                EeFormatLog.Skip("points", "points", values.Length, raw, "坐标数为奇数");
             for (var i = 0; i + 1 < values.Length; i += 2)
                 yield return (EeUnits.ToMm(Num(values[i])), EeUnits.ToMm(Num(values[i + 1])));
         }
@@ -485,6 +603,19 @@ namespace LcscLoader
             return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var result)
                 ? result
                 : fallback;
+        }
+
+        // 立创 PAD 记录缺少扩展字段时，阻焊按 4mil（0.1016mm）兜底；有值则优先用器件值。
+        private const double DefaultSolderExpansionMm = 0.1016;
+
+        private static double ReadExpansion(string[] parts, int index, double fallbackMm)
+        {
+            if (parts.Length <= index) return fallbackMm;
+            var text = parts[index].Trim();
+            if (text.Length == 0) return fallbackMm;
+            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                ? EeUnits.ToMm(value)
+                : fallbackMm;
         }
     }
 

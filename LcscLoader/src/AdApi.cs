@@ -129,12 +129,30 @@ namespace LcscLoader
             }
         }
 
-        // Brings an already-open schematic to the front when the active view
-        // is not a schematic sheet (for example the Home Page).
-        private static ISch_Document EnsureSchDocumentOpen()
+        // 原理图文档对象：优先用当前视图的 owner document —— 把 ISch_Document
+        // 直接强转成 IServerDocument 会拿到不可用的代理（调用 GetFileName 抛异常）。
+        private static IServerDocument FindSchServerDocument()
         {
-            var doc = SchServer.GetCurrentSchDocument();
-            if (doc != null && doc.GetState_ObjectId() != SCH.TObjectId.eSchLib) return doc;
+            try
+            {
+                var view = Client.GetCurrentView();
+                var owner = view == null ? null : view.GetOwnerDocument();
+                if (owner != null && IsSchDoc(owner.GetFileName())) return owner;
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Write("find sch view error: " + ex.Message);
+            }
+
+            try
+            {
+                var last = Client.Internal_LastActiveDocumentOfType("SCH") as IServerDocument;
+                if (last != null && IsSchDoc(last.GetFileName())) return last;
+            }
+            catch
+            {
+                // Fall through to the module scan.
+            }
 
             try
             {
@@ -145,66 +163,210 @@ namespace LcscLoader
                     for (var i = 0; i < count; i++)
                     {
                         var serverDoc = module.Internal_GetDocuments(i) as IServerDocument;
-                        if (serverDoc == null) continue;
-                        var kind = serverDoc.GetKind();
-                        PluginLog.Write("open doc " + i + " kind=" + kind + " file=" + serverDoc.GetFileName());
-                        if (!string.Equals(kind, "SCH", StringComparison.OrdinalIgnoreCase)) continue;
-                        try { Client.ShowDocument(serverDoc); } catch { }
-                        try { serverDoc.Focus(); } catch { }
-                        doc = SchServer.GetCurrentSchDocument();
-                        if (doc != null && doc.GetState_ObjectId() != SCH.TObjectId.eSchLib)
-                        {
-                            PluginLog.Write("switched to schematic " + serverDoc.GetFileName());
-                            return doc;
-                        }
+                        if (serverDoc != null && IsSchDoc(serverDoc.GetFileName())) return serverDoc;
                     }
                 }
             }
             catch (Exception ex)
             {
-                PluginLog.Write("ensure sch document error: " + ex.Message);
+                PluginLog.Write("find sch document error: " + ex.Message);
             }
             return null;
         }
 
-        // Routes AD's own library placement process through the process
-        // launcher, the same path Altium scripts use for RunProcess.
+        private static bool IsSchDoc(string path)
+        {
+            return string.Equals(Path.GetExtension(path), ".SchDoc", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static ISch_Document ActivateSchDocument(IServerDocument serverDoc)
+        {
+            try
+            {
+                var shown = false;
+                try { shown = serverDoc.GetIsShown(); } catch { }
+                Client.ShowDocument(serverDoc);
+                try { serverDoc.Focus(); } catch { }
+                PluginLog.Write("activated schematic shown=" + shown + " file=" + serverDoc.GetFileName());
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Write("activate schematic error: " + ex.Message);
+            }
+
+            var doc = SchServer.GetCurrentSchDocument();
+            if (doc != null && doc.GetState_ObjectId() != SCH.TObjectId.eSchLib) return doc;
+            return null;
+        }
+
+        private static IServerDocumentView ResolveSchView(IServerDocument serverDoc)
+        {
+            var current = Client.GetCurrentView();
+            if (current != null)
+            {
+                var owner = current.GetOwnerDocument();
+                if (owner != null && SameDocument(owner, serverDoc)) return current;
+            }
+
+            for (var index = 0; index <= 1; index++)
+            {
+                try
+                {
+                    var candidate = serverDoc.Internal_GetView(index) as IServerDocumentView;
+                    if (candidate != null)
+                    {
+                        PluginLog.Write("resolve view index=" + index);
+                        return candidate;
+                    }
+                }
+                catch
+                {
+                    // Index not present; try the other one.
+                }
+            }
+
+            if (current != null)
+            {
+                var owner = current.GetOwnerDocument();
+                PluginLog.Write("resolve view fallback owner=" +
+                                (owner == null ? "null" : owner.GetKind() + ":" + owner.GetFileName()));
+            }
+            return current;
+        }
+
+        private static bool SameDocument(IServerDocument a, IServerDocument b)
+        {
+            try
+            {
+                return string.Equals(a.GetFileName(), b.GetFileName(), StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // 符号库没有在 AD 里打开时，按路径查找器件的命令会 0ms 空返回；
+        // 放置前先把库文档以隐藏方式打开，避免切走用户正在看的原理图。
+        private static void EnsureLibraryOpen(string libraryPath)
+        {
+            try
+            {
+                var doc = EnsureDocumentHidden("SchLib", libraryPath);
+                var shown = false;
+                try { shown = doc == null ? false : doc.GetIsShown(); } catch { }
+                PluginLog.Write("schlib open=" + Client.IsDocumentOpen(libraryPath) + " shown=" + shown);
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Write("open schlib error: " + ex.Message);
+            }
+        }
+
+        // 直接发 SCH 自己的放置进程（IntegratedLibrary 包装层内部发的就是这条），
+        // 不行再退回 IntegratedLibrary 命令。
         public static bool PlaceViaProcess(string libReference, string libraryPath)
         {
             try
             {
-                var doc = EnsureSchDocumentOpen();
-                if (doc == null) { ImportLog.Add("请先打开原理图"); return false; }
-                if (doc.GetState_ObjectId() == SCH.TObjectId.eSchLib)
+                var serverDoc = FindSchServerDocument();
+                if (serverDoc == null) { ImportLog.Add("请先打开原理图"); return false; }
+
+                EnsureLibraryOpen(libraryPath);
+
+                var doc = ActivateSchDocument(serverDoc);
+                if (doc == null || doc.GetState_ObjectId() == SCH.TObjectId.eSchLib)
                 {
                     ImportLog.Add("当前是原理图库，不能放置");
                     return false;
                 }
 
-                var view = Client.GetCurrentView();
+                var view = ResolveSchView(serverDoc);
+                if (view == null) { ImportLog.Add("请先打开原理图"); return false; }
                 FocusViewDocument(view);
+                try { Client.SetCurrentView(view); } catch { }
+
                 var launcher = ResolveProcessLauncher(view);
                 PluginLog.Write("process launcher=" + (launcher == null ? "null" : launcher.GetType().FullName));
                 if (launcher == null) return false;
 
-                var parameters = "LibReference=" + libReference + "|Library=" + libraryPath;
+                var parameters = "|PartId=|LibReference=" + libReference + "|Library=" + libraryPath +
+                                 "|SourceLibraryName=" + Path.GetFileName(libraryPath) + "|";
+                LogCommandState(launcher, view, "Sch:PlaceIntegratedComponent", parameters);
+
+                var depthBefore = ProcessDepth();
                 var started = DateTime.UtcNow;
-                launcher.SendMessage("IntegratedLibrary:PlaceLibraryComponent", ref parameters, view);
+                launcher.SendMessage("Sch:PlaceIntegratedComponent", ref parameters, view);
                 var elapsed = (int)(DateTime.UtcNow - started).TotalMilliseconds;
-                PluginLog.Write("process place elapsed=" + elapsed);
-                if (elapsed < 150)
+                var depthAfter = ProcessDepth();
+                PluginLog.Write("sch place elapsed=" + elapsed + "ms depth=" + depthBefore + "->" + depthAfter);
+                if (elapsed >= 150 || depthAfter > depthBefore)
                 {
-                    PluginLog.Write("process place returned immediately");
-                    return false;
+                    ImportLog.Add("已进入放置状态：" + libReference);
+                    return true;
                 }
-                ImportLog.Add("已放置到原理图：" + libReference);
-                return true;
+
+                PluginLog.Write("sch place returned immediately, trying integrated library");
+                var fallback = "LibReference=" + libReference + "|Library=" + libraryPath;
+                depthBefore = ProcessDepth();
+                started = DateTime.UtcNow;
+                launcher.SendMessage("IntegratedLibrary:PlaceLibraryComponent", ref fallback, view);
+                elapsed = (int)(DateTime.UtcNow - started).TotalMilliseconds;
+                depthAfter = ProcessDepth();
+                PluginLog.Write("integrated place elapsed=" + elapsed + "ms depth=" + depthBefore + "->" + depthAfter);
+                if (elapsed >= 150 || depthAfter > depthBefore)
+                {
+                    ImportLog.Add("已进入放置状态：" + libReference);
+                    return true;
+                }
+                return false;
             }
             catch (Exception ex)
             {
                 PluginLog.Write("process place exception: " + ex);
                 return false;
             }
+        }
+
+        private static void LogCommandState(IProcessLauncher launcher, IServerDocumentView view,
+                                            string command, string parameters)
+        {
+            try
+            {
+                bool first = false, second = false, third = false;
+                string text1 = null, text2 = null;
+                launcher.GetCommandState(command, ref parameters, view,
+                    ref first, ref second, ref third, ref text1, ref text2);
+                PluginLog.Write("state " + command + "=" + first + "," + second + "," + third +
+                                " " + text1 + " " + text2);
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Write("state " + command + " error: " + ex.Message);
+            }
+        }
+
+        private static int ProcessDepth()
+        {
+            try
+            {
+                var control = Client as IProcessControl;
+                if (control != null) return control.GetProcessDepth();
+            }
+            catch
+            {
+                // Process control is optional.
+            }
+            try
+            {
+                var control = Client.Internal_GetProcessControl() as IProcessControl;
+                if (control != null) return control.GetProcessDepth();
+            }
+            catch
+            {
+                // Process control is optional.
+            }
+            return -1;
         }
 
         private static IProcessLauncher ResolveProcessLauncher(IServerDocumentView view)
@@ -221,9 +383,10 @@ namespace LcscLoader
         {
             try
             {
-                var doc = EnsureSchDocumentOpen();
-                if (doc == null) { ImportLog.Add("请先打开原理图"); return false; }
-                if (doc.GetState_ObjectId() == SCH.TObjectId.eSchLib)
+                var serverDoc = FindSchServerDocument();
+                if (serverDoc == null) { ImportLog.Add("请先打开原理图"); return false; }
+                var doc = ActivateSchDocument(serverDoc);
+                if (doc == null || doc.GetState_ObjectId() == SCH.TObjectId.eSchLib)
                 {
                     ImportLog.Add("当前是原理图库，不能放置");
                     return false;
@@ -298,13 +461,14 @@ namespace LcscLoader
         {
             try
             {
-                var doc = EnsureSchDocumentOpen();
-                if (doc == null)
+                var serverDoc = FindSchServerDocument();
+                if (serverDoc == null)
                 {
                     ImportLog.Add("请先打开原理图");
                     return false;
                 }
-                if (doc.GetState_ObjectId() == SCH.TObjectId.eSchLib)
+                var doc = ActivateSchDocument(serverDoc);
+                if (doc == null || doc.GetState_ObjectId() == SCH.TObjectId.eSchLib)
                 {
                     ImportLog.Add("当前是原理图库，不能放置");
                     return false;
@@ -318,9 +482,15 @@ namespace LcscLoader
                     return false;
                 }
 
-                var view = Client.GetCurrentView();
+                var view = ResolveSchView(serverDoc);
                 PluginLog.Write("place interactive view=" + (view == null ? "null" : view.GetType().Name));
+                if (view == null)
+                {
+                    ImportLog.Add("请先打开原理图");
+                    return false;
+                }
                 FocusViewDocument(view);
+                try { Client.SetCurrentView(view); } catch { }
                 var launcher = PluginContext.Launcher;
                 if (launcher != null)
                 {
@@ -380,6 +550,39 @@ namespace LcscLoader
         public static IServerDocument OpenDocument(string kind, string path)
         {
             return Client.OpenDocument(kind, path);
+        }
+
+        // 打开但不激活文档：导入库文件时避免界面在 PcbLib/SchLib 之间来回切换。
+        // 若文档已经打开，则直接复用，避免把用户正在看的文档隐藏掉。
+        public static IServerDocument EnsureDocumentHidden(string kind, string path)
+        {
+            try
+            {
+                if (Client.IsDocumentOpen(path))
+                    return Client.Internal_GetDocumentByPath(path) as IServerDocument;
+            }
+            catch
+            {
+                // Fall through to opening it.
+            }
+            return OpenDocumentHidden(kind, path);
+        }
+
+        public static IServerDocument OpenDocumentHidden(string kind, string path)
+        {
+            try
+            {
+                var doc = Client.Internal_OpenDocumentShowOrHide(kind, path, false) as IServerDocument;
+                if (doc != null)
+                {
+                    try { doc.SetIsShown(false); } catch { }
+                }
+                return doc;
+            }
+            catch
+            {
+                return OpenDocument(kind, path);
+            }
         }
     }
 }
