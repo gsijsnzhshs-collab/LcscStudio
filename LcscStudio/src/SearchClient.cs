@@ -36,6 +36,44 @@ namespace LcscStudio
 
         internal static HttpClient Http => Client;
 
+        // 实测：首次请求的 TLS 握手要 14s，之后同一连接只需 1s 左右。
+        // 面板打开时先在后台预热一次，用户真正搜索时就不必再等握手。
+        private static int _warmed;
+
+        public static void WarmUp()
+        {
+            if (Interlocked.Exchange(ref _warmed, 1) == 1) return;
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await SearchAsync("C1525", 1, 1, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // 预热失败不影响后续搜索，真正的错误留给搜索时再报。
+                }
+            });
+        }
+
+        // 同一关键字翻页/回退时不必重复请求（库存在线数据会变，保留一分钟）。
+        private sealed class CacheEntry
+        {
+            public SearchPage Page;
+            public DateTime At;
+        }
+
+        private static readonly object CacheLock = new object();
+        private static readonly Dictionary<string, CacheEntry> Cache =
+            new Dictionary<string, CacheEntry>(StringComparer.Ordinal);
+        private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
+        private const int CacheLimit = 32;
+
+        private static string CacheKey(string keyword, int page, int pageSize)
+        {
+            return keyword.Trim().ToLowerInvariant() + "|" + page + "|" + pageSize;
+        }
+
         private static HttpClient CreateClient()
         {
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
@@ -59,6 +97,14 @@ namespace LcscStudio
         {
             if (string.IsNullOrWhiteSpace(keyword))
                 return new SearchPage();
+
+            var key = CacheKey(keyword, page, pageSize);
+            lock (CacheLock)
+            {
+                if (Cache.TryGetValue(key, out var hit) &&
+                    DateTime.UtcNow - hit.At < CacheTtl)
+                    return hit.Page;
+            }
 
             var config = EeEndpoints.Current;
             Exception last = null;
@@ -84,7 +130,9 @@ namespace LcscStudio
                             var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                             try
                             {
-                                return Parse(text);
+                                var parsed = Parse(text);
+                                StoreInCache(key, parsed);
+                                return parsed;
                             }
                             catch (EeFormatError)
                             {
@@ -112,6 +160,20 @@ namespace LcscStudio
                 }
             }
             throw new EeNetworkError("无法访问立创搜索接口，请检查网络。", last);
+        }
+
+        private static void StoreInCache(string key, SearchPage page)
+        {
+            lock (CacheLock)
+            {
+                if (Cache.Count >= CacheLimit)
+                {
+                    // 满了就丢弃最旧的一半，避免无限增长。
+                    var stale = new List<string>(Cache.Keys);
+                    foreach (var k in stale.GetRange(0, CacheLimit / 2)) Cache.Remove(k);
+                }
+                Cache[key] = new CacheEntry { Page = page, At = DateTime.UtcNow };
+            }
         }
 
         private static SearchPage Parse(string json)

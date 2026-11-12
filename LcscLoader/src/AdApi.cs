@@ -204,8 +204,14 @@ namespace LcscLoader
             {
                 var shown = false;
                 try { shown = serverDoc.GetIsShown(); } catch { }
-                Client.ShowDocument(serverDoc);
-                try { serverDoc.Focus(); } catch { }
+                // 原理图已经是当前文档时不要再 ShowDocument，否则放置前会闪一下。
+                var current = Client.GetCurrentView();
+                var owner = current == null ? null : current.GetOwnerDocument();
+                if (owner == null || !SameDocument(owner, serverDoc))
+                {
+                    Client.ShowDocument(serverDoc);
+                    try { serverDoc.Focus(); } catch { }
+                }
                 PluginLog.Write("activated schematic shown=" + shown + " file=" + serverDoc.GetFileName());
             }
             catch (Exception ex)
@@ -567,23 +573,28 @@ namespace LcscLoader
         }
 
         // 库文件内容正确，但 AD 会话内的库索引仍是导入前的快照。
-        // 手动打开库按 Ctrl+S 后立即恢复，说明必须走编辑器保存命令；
-        // 文档级 DoFileSave / SetModified 都不会触发索引重建。
+        // 库文件内容正确，但 AD 会话内的库索引仍是导入前的快照。
+        // RefreshDocumentView 单独调用无效，也不存在可用的无界面刷新接口；
+        // 只能短暂激活库文档并模拟 Ctrl+S，保存成功后再切回原文档。
         public static void RefreshLibraryIndex(string libraryPath)
         {
             if (string.IsNullOrWhiteSpace(libraryPath)) return;
             try
             {
-                var doc = EnsureDocumentHidden("PcbLib", libraryPath);
-                if (doc == null) return;
-                // 刷新必须短暂激活库文档，结束后立刻切回原来的文档，避免界面停在封装库。
+                // 必须在打开库文档之前记录，否则拿到的已经是 PcbLib 自己。
                 IServerDocument previous = null;
                 try { previous = Client.GetCurrentView()?.GetOwnerDocument(); } catch { }
+                var doc = EnsureDocumentHidden("PcbLib", libraryPath);
+                if (doc == null) return;
+
                 var modified = true;
                 for (var attempt = 0; attempt < 3 && modified; attempt++)
                 {
                     Client.ShowDocument(doc);
+                    try { doc.Focus(); } catch { }
                     try { doc.SetModified(true); } catch { }
+                    // 让 AD 把文档激活处理完，再发按键，否则 Ctrl+S 会被丢掉。
+                    System.Windows.Forms.Application.DoEvents();
                     try
                     {
                         System.Windows.Forms.SendKeys.SendWait("^s");
@@ -594,15 +605,18 @@ namespace LcscLoader
                         break;
                     }
                     try { modified = doc.GetModified(); } catch { }
-                    if (modified) System.Threading.Thread.Sleep(150);
+                    if (modified) System.Threading.Thread.Sleep(120);
                 }
                 if (modified) doc.DoFileSave("PcbLib");
                 PluginLog.Write("library index refresh: modifiedAfter=" + modified);
 
-                if (previous != null && !string.Equals(
-                        previous.GetFileName(), doc.GetFileName(), StringComparison.OrdinalIgnoreCase))
+                if (previous != null && !SameDocument(previous, doc))
                 {
-                    try { Client.ShowDocument(previous); }
+                    try
+                    {
+                        Client.ShowDocument(previous);
+                        try { previous.Focus(); } catch { }
+                    }
                     catch (Exception ex)
                     {
                         PluginLog.Write("library index refresh: restore view skipped " + ex.GetType().Name);

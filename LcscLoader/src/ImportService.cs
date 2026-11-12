@@ -253,8 +253,9 @@ namespace LcscLoader
                 }
 
                 // 封装已写盘且内容正确，但 AD 会话内的库索引仍是导入前的快照。
-                // 走一次编辑器保存命令，索引才会像手动 Ctrl+S 那样重建。
-                if (request.RefreshIndex) AdApi.RefreshLibraryIndex(request.PcbLibPath);
+                // 触发一次编辑器保存重建索引；过程冻结重绘，界面不会停在封装库。
+                if (request.RefreshIndex)
+                    AdApi.RefreshLibraryIndex(request.PcbLibPath);
 
                 // 正常情况下视图从未切换；个别版本若仍切换，收尾时切回原文档。
                 // 用 RestoreView 吞异常 —— ShowDocument 对 EnsureDocumentHidden 打开的隐藏文档

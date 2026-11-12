@@ -80,6 +80,9 @@ namespace LcscStudio
             Font = Theme.UiFont;
             DoubleBuffered = true;
 
+            // 首次搜索的握手很慢，面板一创建就在后台把连接预热好。
+            SearchClient.WarmUp();
+
             _root = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -1070,6 +1073,7 @@ namespace LcscStudio
 
             try
             {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
                 var page = await SearchClient.SearchAsync(
                     keyword, _page, Math.Max(10, _settings.SearchPageSize), cts.Token);
                 if (cts.IsCancellationRequested) return;
@@ -1090,7 +1094,7 @@ namespace LcscStudio
                 LayoutColumns();
 
                 PluginLog.Write("panel search '" + keyword + "' total=" + page.Total +
-                    " items=" + page.Items.Count);
+                    " items=" + page.Items.Count + " elapsed=" + watch.ElapsedMilliseconds + "ms");
                 _info.Text = string.Format("共 {0:N0} 条 · 第 {1} 页", _total, _page);
                 UpdatePagerButtons();
 
@@ -1577,9 +1581,12 @@ namespace LcscStudio
             {
                 var schLib = _settings.ResolveSchLib();
                 var exists = AdApi.SymbolExists(_details.LibReference, schLib);
-                if (!exists || _settings.Overwrite)
+                var imported = false;
+                // 放置不改动库：库内容是否最新由“导入到库”负责。
+                // 只有库里确实没有该器件时才补一次导入，避免放置时重复重建封装/符号并两次保存。
+                if (!exists)
                 {
-                    Log(exists ? "正在按最新规则刷新库中符号…" : "库中没有该器件，正在导入…");
+                    Log("库中没有该器件，正在导入…");
                     var model = await BuildModelAsync(_details);
                     var request = new ImportRequest
                     {
@@ -1594,12 +1601,14 @@ namespace LcscStudio
                     request.Parts.Add(new ImportPart { Part = _details.Part, Model = model });
                     ImportLog.Clear();
                     ImportService.Execute(request);
+                    imported = true;
                     var text = ImportLog.Text;
                     if (!string.IsNullOrWhiteSpace(text)) Log(text.TrimEnd());
                 }
 
                 var reference = _details.LibReference;
-                var timer = new System.Windows.Forms.Timer { Interval = 350 };
+                // 刚导入过才需要等 AD 落盘稳定；库中已有时立即放置，不再多等。
+                var timer = new System.Windows.Forms.Timer { Interval = imported ? 350 : 1 };
                 timer.Tick += (sender2, args2) =>
                 {
                     timer.Stop();
