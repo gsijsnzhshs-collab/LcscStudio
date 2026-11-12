@@ -10,14 +10,14 @@
 ### Fixed
 
 - **覆盖导入后 SchLib 符号整条记录消失**：覆盖时删除旧元件后，新元件由工厂创建却没有重新 `AddSchComponent`，保存后库里查不到该符号。现在无论新建还是覆盖，都会把新实例加回库并设为当前元件
-- **SchLib 增删未包事务**：`RemoveSchComponent` / `AddSchComponent` 现在包在 `SchServer.ProcessControl.PreProcess/PostProcess` 内，否则删除只作用于内存，保存后旧引脚残留（重复引脚）
+- **覆盖导入后引脚重复（脚号翻倍）**：`RemoveSchObject` 只移除元件容器，库部件仍持有旧引脚，保存后新旧引脚叠加。现改为在 SCH 事务（`SchServer.ProcessControl.PreProcess/PostProcess`）中删除整个旧元件并重建，事务提交后旧引脚不再残留
 - **PcbLib 在事务提交前落盘**：`DoFileSave("PcbLib")` 原本在 `PcbServer.PostProcess()` 之前执行，写出的仍是事务开始前的内容。现改为事务提交后再保存，与 SchLib 的保存顺序一致
 - **模型记录缺少库文件名（`Library: Not found` 的根因）**：AD 自己写入原理图的实现记录形如 `ModelDatafile0=CJ.PcbLib|ModelDatafileEntity0=<封装名>|ModelDatafileKind0=PCBLib`；插件原先调用 `AddDataFileLink(modelName, libraryPath, "PCBLIB")`，第一个参数误传为封装名，导致 `ModelDatafile0` 为空，AD 无法定位库。现改为 `AddDataFileLink(<库文件名>, <封装名>, "PCBLib")`
 - **恢复视图时对隐藏文档调用 ShowDocument**：AD 会抛 `RPC_E_SERVERFAULT`，异常从 finally 冒泡覆盖导入结果。现在先判断文档是否隐藏，隐藏则跳过
 
 ### Changed
 
-- **符号字体统一为 10pt**：位号、型号注释、引脚名 / 脚号原为 6pt / 5pt，在 AD 默认 10pt 的符号里明显偏小
+- **符号字体偏小**：位号、型号注释、引脚名 / 脚号原为 6pt / 5pt，在 AD 默认 10pt 的符号里明显偏小，现统一为 10pt
 - **覆盖导入时重置部件数**：`PartCountNoPart0` 按本次实际部件数重置，避免上次多部件、本次单部件时留下空部件
 - **移除临时诊断代码**：清理了排查期间加入的 `diag` 日志，以及被实测证明无法刷新 AD 库索引的“关闭重开库文档 + `File:Save`”实验代码
 
