@@ -1589,6 +1589,7 @@ namespace LcscStudio
                         Footprint = _settings.ImportFootprint,
                         Overwrite = _settings.Overwrite,
                         Place = false,
+                        RefreshIndex = false,
                     };
                     request.Parts.Add(new ImportPart { Part = _details.Part, Model = model });
                     ImportLog.Clear();

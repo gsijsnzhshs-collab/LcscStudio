@@ -25,6 +25,8 @@ namespace LcscLoader
         public bool Footprint = true;
         public bool Overwrite;
         public bool Place;
+        // 仅在真正“导入到库”时刷新 AD 的库索引；放置前为补齐符号而做的重复导入不需要。
+        public bool RefreshIndex = true;
         public readonly List<ImportPart> Parts = new List<ImportPart>();
     }
 
@@ -252,7 +254,7 @@ namespace LcscLoader
 
                 // 封装已写盘且内容正确，但 AD 会话内的库索引仍是导入前的快照。
                 // 走一次编辑器保存命令，索引才会像手动 Ctrl+S 那样重建。
-                AdApi.RefreshLibraryIndex(request.PcbLibPath);
+                if (request.RefreshIndex) AdApi.RefreshLibraryIndex(request.PcbLibPath);
 
                 // 正常情况下视图从未切换；个别版本若仍切换，收尾时切回原文档。
                 // 用 RestoreView 吞异常 —— ShowDocument 对 EnsureDocumentHidden 打开的隐藏文档

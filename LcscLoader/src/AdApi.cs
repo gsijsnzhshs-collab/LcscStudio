@@ -576,6 +576,9 @@ namespace LcscLoader
             {
                 var doc = EnsureDocumentHidden("PcbLib", libraryPath);
                 if (doc == null) return;
+                // 刷新必须短暂激活库文档，结束后立刻切回原来的文档，避免界面停在封装库。
+                IServerDocument previous = null;
+                try { previous = Client.GetCurrentView()?.GetOwnerDocument(); } catch { }
                 var modified = true;
                 for (var attempt = 0; attempt < 3 && modified; attempt++)
                 {
@@ -595,6 +598,16 @@ namespace LcscLoader
                 }
                 if (modified) doc.DoFileSave("PcbLib");
                 PluginLog.Write("library index refresh: modifiedAfter=" + modified);
+
+                if (previous != null && !string.Equals(
+                        previous.GetFileName(), doc.GetFileName(), StringComparison.OrdinalIgnoreCase))
+                {
+                    try { Client.ShowDocument(previous); }
+                    catch (Exception ex)
+                    {
+                        PluginLog.Write("library index refresh: restore view skipped " + ex.GetType().Name);
+                    }
+                }
             }
             catch (Exception ex)
             {
