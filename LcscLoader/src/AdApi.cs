@@ -14,6 +14,25 @@ namespace LcscLoader
 
         public static IClient Client => PluginContext.Client ?? DXP.GlobalVars.Client;
 
+        // 官方示例使用 SchServer.ProcessControl.PreProcess(SchDoc, "")。
+        // Client 的 ProcessControl 不属于 SCH 文档，传入 SchLib 会抛外部组件异常。
+        public static IProcessControl ProcessControl
+        {
+            get
+            {
+                try
+                {
+                    var module = SchServer as IServerModule;
+                    return module == null ? null : module.GetProcessControl();
+                }
+                catch (Exception ex)
+                {
+                    PluginLog.Write("get sch process control failed: " + ex.Message);
+                    return null;
+                }
+            }
+        }
+
         public static IPCB_ServerInterface PcbServer
         {
             get

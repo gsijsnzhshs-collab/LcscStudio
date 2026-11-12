@@ -2,6 +2,32 @@
 
 本文件记录 LcscLoader 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## v1.1.1.0 — 2026-11-12
+
+针对“覆盖导入后原理图器件显示 `footprint is missing` / `Library: Not found`”的一组修复。
+本版已定位并修正模型记录的数据缺陷，但**修正后的效果尚未在 Altium Designer 中完成一次完整导入实测**，详见文末「待验证」。
+
+### Fixed
+
+- **覆盖导入后 SchLib 符号整条记录消失**：覆盖时删除旧元件后，新元件由工厂创建却没有重新 `AddSchComponent`，保存后库里查不到该符号。现在无论新建还是覆盖，都会把新实例加回库并设为当前元件
+- **SchLib 增删未包事务**：`RemoveSchComponent` / `AddSchComponent` 现在包在 `SchServer.ProcessControl.PreProcess/PostProcess` 内，否则删除只作用于内存，保存后旧引脚残留（重复引脚）
+- **PcbLib 在事务提交前落盘**：`DoFileSave("PcbLib")` 原本在 `PcbServer.PostProcess()` 之前执行，写出的仍是事务开始前的内容。现改为事务提交后再保存，与 SchLib 的保存顺序一致
+- **模型记录缺少库文件名（`Library: Not found` 的根因）**：AD 自己写入原理图的实现记录形如 `ModelDatafile0=CJ.PcbLib|ModelDatafileEntity0=<封装名>|ModelDatafileKind0=PCBLib`；插件原先调用 `AddDataFileLink(modelName, libraryPath, "PCBLIB")`，第一个参数误传为封装名，导致 `ModelDatafile0` 为空，AD 无法定位库。现改为 `AddDataFileLink(<库文件名>, <封装名>, "PCBLib")`
+- **恢复视图时对隐藏文档调用 ShowDocument**：AD 会抛 `RPC_E_SERVERFAULT`，异常从 finally 冒泡覆盖导入结果。现在先判断文档是否隐藏，隐藏则跳过
+
+### Changed
+
+- **符号字体统一为 10pt**：位号、型号注释、引脚名 / 脚号原为 6pt / 5pt，在 AD 默认 10pt 的符号里明显偏小
+- **覆盖导入时重置部件数**：`PartCountNoPart0` 按本次实际部件数重置，避免上次多部件、本次单部件时留下空部件
+- **移除临时诊断代码**：清理了排查期间加入的 `diag` 日志，以及被实测证明无法刷新 AD 库索引的“关闭重开库文档 + `File:Save`”实验代码
+
+### 待验证
+
+- **`footprint is missing` 是否彻底消失**：根因（`ModelDatafile0` 缺失）已通过对比磁盘上 AD 原生记录确认，但修正后的 DLL 尚未完成“导入新编号 → 选中器件 → Properties 显示封装名”的完整实测
+- **覆盖导入 `System.NullReferenceException`**：加入分段日志后连续多次导入均未复现，根因未定位，相关日志已随本版清理；若复现需重新插桩
+
+---
+
 ## v1.1.0.0 — 2026-11-10
 
 ### Added

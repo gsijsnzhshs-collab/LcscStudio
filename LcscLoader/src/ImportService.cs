@@ -131,9 +131,6 @@ namespace LcscLoader
                                     modelWatch.Stop();
                                     PluginLog.Write("import: 3d ok bodyAdded=" + bodyAdded + " " + itemCaption);
                                 }
-                                PluginLog.Write("import: savePcb start " + itemCaption);
-                                pcbDoc.DoFileSave("PcbLib");
-                                PluginLog.Write("import: savePcb ok " + itemCaption);
                             }
                             catch (Exception ex)
                             {
@@ -147,6 +144,12 @@ namespace LcscLoader
                             {
                                 AdApi.PcbServer.PostProcess();
                             }
+
+                            // 落盘必须在事务提交之后：PostProcess 之前的 DoFileSave 只写内存，
+                            // 磁盘上的 PcbLib 仍是旧内容，原理图解析模型链接时报 footprint is missing。
+                            PluginLog.Write("import: savePcb start " + itemCaption);
+                            pcbDoc.DoFileSave("PcbLib");
+                            PluginLog.Write("import: savePcb ok " + itemCaption);
                             footprintWatch.Stop();
 
                             var footprintCaption = string.IsNullOrWhiteSpace(footprint.PatternName)
@@ -277,7 +280,18 @@ namespace LcscLoader
             try
             {
                 var owner = AdApi.Client.GetCurrentView()?.GetOwnerDocument();
-                if (owner != null && ReferenceEquals(owner, currentDoc)) return;
+                if (owner != null && string.Equals(
+                        owner.GetFileName(), currentDoc.GetFileName(), StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                // 原文档本身就是隐藏的 SchLib/PcbLib 时不能强制显示；
+                // AD20 会弹出“服务器出现意外情况”，随后才向插件抛出 COMException。
+                if (!currentDoc.GetIsShown())
+                {
+                    PluginLog.Write("restore view skipped: original document is hidden");
+                    return;
+                }
+
                 AdApi.Client.ShowDocument(currentDoc);
             }
             catch (Exception ex)

@@ -3,7 +3,7 @@
 在 Altium Designer 内以停靠面板（标题 `LCSC ADesignK`）搜索立创商城元件，
 预览符号 / 封装 / 3D / 商品参数，并一键导入到当前原理图库、PCB 库或直接放置到原理图。
 
-- 当前版本：`1.1.0.0`（唯一版本源：[version.json](version.json)）
+- 当前版本：`1.1.1.0`（唯一版本源：[version.json](version.json)）
 - 已验证版本：Altium Designer 20.0.13、**AD22 (22.9.1)**（详见 [docs/compat-matrix.md](docs/compat-matrix.md)）
 - 平台：Windows / .NET Framework 4.8（由 AD 宿主加载，无需单独运行时）
 

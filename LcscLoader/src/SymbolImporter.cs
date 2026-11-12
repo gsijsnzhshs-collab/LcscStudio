@@ -16,6 +16,47 @@ namespace LcscLoader
             string footprintName,
             bool overwrite)
         {
+            // 原理图库的增删必须包在 SchServer.ProcessControl 事务里，保存时才会写进文档；
+            // 不包事务时 RemoveSchObject 只作用于内存，保存后旧引脚仍在（重复引脚）。
+            var control = AdApi.ProcessControl;
+            if (control == null)
+                throw new InvalidOperationException("无法获取 SchServer.ProcessControl");
+
+            try
+            {
+                control.PreProcess(schLib, "");
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Write("sch preprocess failed: " + ex.Message);
+                throw new InvalidOperationException("无法启动原理图库修改事务", ex);
+            }
+
+            try
+            {
+                return ImportCore(part, schLib, pcbLibPath, footprintName, overwrite);
+            }
+            finally
+            {
+                try
+                {
+                    control.PostProcess(schLib, "");
+                }
+                catch (Exception ex)
+                {
+                    PluginLog.Write("sch postprocess failed: " + ex.Message);
+                    throw new InvalidOperationException("无法完成原理图库修改事务", ex);
+                }
+            }
+        }
+
+        private static ISch_Component ImportCore(
+            LcscPart part,
+            ISch_Lib schLib,
+            string pcbLibPath,
+            string footprintName,
+            bool overwrite)
+        {
             var libReference = string.IsNullOrWhiteSpace(part.Symbol.Name) ? part.LcscId : part.Symbol.Name;
             var existing = schLib.GetState_SchComponentByLibRef(libReference);
             ISch_Component component = null;
@@ -27,18 +68,11 @@ namespace LcscLoader
                     return existing;
                 }
 
-                // 覆盖时不要 RemoveSchComponent：AD 的库视图/原理图实例会保留旧对象引用，
-                // 移除后刷新会抛 NullReferenceException。改为清空内容后原地重建。
-                var container = existing as ISch_BasicContainer;
-                if (container != null)
-                {
-                    container.DeleteAll();
-                    component = existing;
-                }
-                else
-                {
-                    schLib.RemoveSchComponent(existing);
-                }
+                // 容器内 RemoveSchObject 不会可靠移除库部件持有的旧引脚；
+                // 在 SCH 事务中删除整个旧元件，再从工厂创建干净实例。
+                PluginLog.Write("replace sch component: " + libReference);
+                schLib.RemoveSchComponent(existing);
+                component = null;
             }
 
             if (component == null)
@@ -54,21 +88,24 @@ namespace LcscLoader
 
             // 多部件器件（如 MCU 的独立电源符号）要建出对应的部件数，
             // 每个图形/引脚再按 OwnerPartId 挂到各自部件上。
+            // 覆盖导入时部件数可能残留（上次多部件、本次单部件），统一按本次实际数量重置，
+            // 否则会留下一个空部件。
             var parts = part.SymbolParts.Count > 0
                 ? part.SymbolParts
                 : new List<EeSymbol> { part.Symbol };
-            if (parts.Count > 1)
+            if (component.GetState_PartCountNoPart0() != parts.Count)
                 component.SetState_PartCountNoPart0(parts.Count);
 
-            var smallFont = AdApi.SchServer.GetState_FontManager()
-                .GetFontID(6, 0, false, false, false, false, "Tahoma");
+            // 位号与型号注释同用 AD 默认的 10pt，取 6pt 会比正常符号偏小。
+            var fieldFont = AdApi.SchServer.GetState_FontManager()
+                .GetFontID(10, 0, false, false, false, false, "Tahoma");
             var designator = component.GetState_SchDesignator();
             if (designator != null)
             {
                 designator.SetState_Text(
                     string.IsNullOrWhiteSpace(part.Symbol.Prefix) ? "U?" : part.Symbol.Prefix);
                 var designatorLabel = designator as ISch_Label;
-                if (designatorLabel != null) designatorLabel.SetState_FontId(smallFont);
+                if (designatorLabel != null) designatorLabel.SetState_FontId(fieldFont);
             }
             try
             {
@@ -77,7 +114,7 @@ namespace LcscLoader
                 {
                     var container = comment as ISch_BasicContainer;
                     if (container != null) container.SetState_Text(part.Symbol.Name);
-                    comment.SetState_FontId(smallFont);
+                    comment.SetState_FontId(fieldFont);
                 }
             }
             catch
@@ -106,7 +143,9 @@ namespace LcscLoader
             if (!string.IsNullOrWhiteSpace(footprintName))
                 AssignFootprint(component, pcbLibPath, footprintName);
 
-            if (existing == null) schLib.AddSchComponent(component);
+            // 无论新建还是覆盖，走到这里的 component 都是刚创建的实例；
+            // 覆盖时旧元件已删除，新实例同样必须重新加入库，否则保存后整个符号消失。
+            schLib.AddSchComponent(component);
             schLib.SetState_Current_SchComponent(component);
             schLib.GraphicallyInvalidate();
 
@@ -397,7 +436,9 @@ namespace LcscLoader
             int partId)
         {
             var fontManager = AdApi.SchServer.GetState_FontManager();
-            var fontId = fontManager.GetFontID(5, 0, false, false, false, false, "Tahoma");
+            // AD 原理图库的默认字体固定为 10pt（Times New Roman），引脚字号按同一量级取 10，
+            // 取 5 会只有正常符号的一半，脚号/引脚名明显偏小。
+            var fontId = fontManager.GetFontID(10, 0, false, false, false, false, "Tahoma");
 
             foreach (var source in pins)
             {
@@ -565,7 +606,13 @@ namespace LcscLoader
             implementation.SetState_MapAsString("");
             implementation.SetState_ModelName(modelName);
             implementation.SetState_ModelType("PCBLIB");
-            implementation.AddDataFileLink(modelName, libraryPath, "PCBLIB");
+            // AD 自己写入原理图的记录形如：
+            // ModelDatafile0=CJ.PcbLib|ModelDatafileEntity0=<封装名>|ModelDatafileKind0=PCBLib
+            // 第一个参数是库文件名（不是封装名），缺了它 AD 无法定位库，只会显示 Library: Not found。
+            var dataFile = string.IsNullOrWhiteSpace(libraryPath)
+                ? ""
+                : System.IO.Path.GetFileName(libraryPath);
+            implementation.AddDataFileLink(dataFile, modelName, "PCBLib");
             implementation.SetState_IsCurrent(true);
         }
 
