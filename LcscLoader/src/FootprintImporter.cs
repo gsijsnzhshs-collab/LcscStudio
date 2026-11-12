@@ -77,6 +77,11 @@ namespace LcscLoader
 
             ImportLog.Add(string.Format("PCB 封装：{0}（{1} 个图元）", pattern, part.Footprint.Shapes.Count));
 
+            // AD 只有在组件注册后才把它放进库的组件索引。CreateNewComponent 只建对象不注册，
+            // 保存后的 PcbLib 磁盘上虽有存储项，原理图解析模型时仍报 footprint not found。
+            if (!pcbLib.RegisterComponent(component))
+                PluginLog.Write("fp register returned false " + pattern);
+
             result.Component = component;
             result.PatternName = pattern;
             result.Footprint = part.Footprint;

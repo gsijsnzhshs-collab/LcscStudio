@@ -606,13 +606,9 @@ namespace LcscLoader
             implementation.SetState_MapAsString("");
             implementation.SetState_ModelName(modelName);
             implementation.SetState_ModelType("PCBLIB");
-            // AD 自己写入原理图的记录形如：
-            // ModelDatafile0=CJ.PcbLib|ModelDatafileEntity0=<封装名>|ModelDatafileKind0=PCBLib
-            // 第一个参数是库文件名（不是封装名），缺了它 AD 无法定位库，只会显示 Library: Not found。
-            var dataFile = string.IsNullOrWhiteSpace(libraryPath)
-                ? ""
-                : System.IO.Path.GetFileName(libraryPath);
-            implementation.AddDataFileLink(dataFile, modelName, "PCBLib");
+            // ModelDatafile0 必须是库文件的完整路径。只写文件名时 AD 认不出该库与
+            // 工程库是同一个文件，仍报 Library: Not found；工程里既有器件也都是完整路径。
+            implementation.AddDataFileLink(modelName, libraryPath ?? "", "PCBLib");
             implementation.SetState_IsCurrent(true);
         }
 

@@ -566,6 +566,42 @@ namespace LcscLoader
             }
         }
 
+        // 库文件内容正确，但 AD 会话内的库索引仍是导入前的快照。
+        // 手动打开库按 Ctrl+S 后立即恢复，说明必须走编辑器保存命令；
+        // 文档级 DoFileSave / SetModified 都不会触发索引重建。
+        public static void RefreshLibraryIndex(string libraryPath)
+        {
+            if (string.IsNullOrWhiteSpace(libraryPath)) return;
+            try
+            {
+                var doc = EnsureDocumentHidden("PcbLib", libraryPath);
+                if (doc == null) return;
+                var modified = true;
+                for (var attempt = 0; attempt < 3 && modified; attempt++)
+                {
+                    Client.ShowDocument(doc);
+                    try { doc.SetModified(true); } catch { }
+                    try
+                    {
+                        System.Windows.Forms.SendKeys.SendWait("^s");
+                    }
+                    catch (Exception ex)
+                    {
+                        PluginLog.Write("library index refresh: sendkeys failed " + ex.GetType().Name);
+                        break;
+                    }
+                    try { modified = doc.GetModified(); } catch { }
+                    if (modified) System.Threading.Thread.Sleep(150);
+                }
+                if (modified) doc.DoFileSave("PcbLib");
+                PluginLog.Write("library index refresh: modifiedAfter=" + modified);
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Write("library index refresh failed: " + ex.Message);
+            }
+        }
+
         public static IServerDocument OpenDocument(string kind, string path)
         {
             return Client.OpenDocument(kind, path);

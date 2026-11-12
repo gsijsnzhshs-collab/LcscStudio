@@ -147,6 +147,9 @@ namespace LcscLoader
 
                             // 落盘必须在事务提交之后：PostProcess 之前的 DoFileSave 只写内存，
                             // 磁盘上的 PcbLib 仍是旧内容，原理图解析模型链接时报 footprint is missing。
+                            // SetModified 让 AD 认为文档确实有改动，保存时才会重建库索引；
+                            // 否则 DoFileSave 只写盘，原理图仍停在 Library: Not found。
+                            pcbDoc.SetModified(true);
                             PluginLog.Write("import: savePcb start " + itemCaption);
                             pcbDoc.DoFileSave("PcbLib");
                             PluginLog.Write("import: savePcb ok " + itemCaption);
@@ -201,6 +204,7 @@ namespace LcscLoader
                                     footprint?.PatternName, request.Overwrite);
                                 PluginLog.Write("import: symbol ok " + itemCaption);
                                 PluginLog.Write("import: saveSch start " + itemCaption);
+                                schDoc.SetModified(true);
                                 schDoc.DoFileSave("SchLib");
                                 PluginLog.Write("import: saveSch ok " + itemCaption);
                             }
@@ -245,6 +249,10 @@ namespace LcscLoader
                     progress?.Invoke(i + 1, total);
                     if (yieldBetweenItems) await Task.Yield();
                 }
+
+                // 封装已写盘且内容正确，但 AD 会话内的库索引仍是导入前的快照。
+                // 走一次编辑器保存命令，索引才会像手动 Ctrl+S 那样重建。
+                AdApi.RefreshLibraryIndex(request.PcbLibPath);
 
                 // 正常情况下视图从未切换；个别版本若仍切换，收尾时切回原文档。
                 // 用 RestoreView 吞异常 —— ShowDocument 对 EnsureDocumentHidden 打开的隐藏文档

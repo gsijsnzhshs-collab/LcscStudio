@@ -5,7 +5,7 @@
 ## v1.1.1.0 — 2026-11-12
 
 针对“覆盖导入后原理图器件显示 `footprint is missing` / `Library: Not found`”的一组修复。
-本版已定位并修正模型记录的数据缺陷，但**修正后的效果尚未在 Altium Designer 中完成一次完整导入实测**，详见文末「待验证」。
+本版定位并修正了两处根因（模型记录缺库文件名、会话内库索引不刷新），并已在 Altium Designer 中完成导入实测。
 
 ### Fixed
 
@@ -13,6 +13,7 @@
 - **覆盖导入后引脚重复（脚号翻倍）**：`RemoveSchObject` 只移除元件容器，库部件仍持有旧引脚，保存后新旧引脚叠加。现改为在 SCH 事务（`SchServer.ProcessControl.PreProcess/PostProcess`）中删除整个旧元件并重建，事务提交后旧引脚不再残留
 - **PcbLib 在事务提交前落盘**：`DoFileSave("PcbLib")` 原本在 `PcbServer.PostProcess()` 之前执行，写出的仍是事务开始前的内容。现改为事务提交后再保存，与 SchLib 的保存顺序一致
 - **模型记录缺少库文件名（`Library: Not found` 的根因）**：AD 自己写入原理图的实现记录形如 `ModelDatafile0=CJ.PcbLib|ModelDatafileEntity0=<封装名>|ModelDatafileKind0=PCBLib`；插件原先调用 `AddDataFileLink(modelName, libraryPath, "PCBLIB")`，第一个参数误传为封装名，导致 `ModelDatafile0` 为空，AD 无法定位库。现改为 `AddDataFileLink(<库文件名>, <封装名>, "PCBLib")`
+- **会话内库索引不刷新（`footprint is missing` 的最终根因）**：即使封装已写入 PcbLib、模型记录也正确，AD 仍不会重建库索引，只有编辑器自身的保存命令（Ctrl+S）才会触发。文档级 `DoFileSave`、`SetModified`，以及命令注入（`File:Save`、`File:SaveDocument`、`PcbLib:Save`、`Pcb:FileSave`、`File:SaveAll`）全部实测无效。现在导入结束时会显示库文档并模拟一次 `Ctrl+S`，保存成功后再切回原理图；三次尝试仍失败时回退到 `DoFileSave`，避免数据丢失
 - **恢复视图时对隐藏文档调用 ShowDocument**：AD 会抛 `RPC_E_SERVERFAULT`，异常从 finally 冒泡覆盖导入结果。现在先判断文档是否隐藏，隐藏则跳过
 
 ### Changed
@@ -21,9 +22,9 @@
 - **覆盖导入时重置部件数**：`PartCountNoPart0` 按本次实际部件数重置，避免上次多部件、本次单部件时留下空部件
 - **移除临时诊断代码**：清理了排查期间加入的 `diag` 日志，以及被实测证明无法刷新 AD 库索引的“关闭重开库文档 + `File:Save`”实验代码
 
-### 待验证
+### 已知限制
 
-- **`footprint is missing` 是否彻底消失**：根因（`ModelDatafile0` 缺失）已通过对比磁盘上 AD 原生记录确认，但修正后的 DLL 尚未完成“导入新编号 → 选中器件 → Properties 显示封装名”的完整实测
+- **库索引刷新依赖 AD 前台焦点**：刷新通过模拟 `Ctrl+S` 完成，导入期间请保持 Altium Designer 为前台窗口，并避免操作键盘鼠标。若焦点被其他程序抢走，索引可能不刷新，此时在封装库手动执行一次保存即可恢复
 - **覆盖导入 `System.NullReferenceException`**：加入分段日志后连续多次导入均未复现，根因未定位，相关日志已随本版清理；若复现需重新插桩
 
 ---
