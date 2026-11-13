@@ -2,12 +2,19 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
+using LcscLoader;
 
 namespace LcscStudio
 {
     internal sealed class TargetForm : Form
     {
         private readonly AppSettings _draft;
+        // 设置里带出来的旧值与程序自动填的值分开记，只有这两类值才允许被工程切换覆盖；
+        // 用户本次在对话框里手动改过的路径一律不动。
+        private readonly string _savedMergeSch;
+        private readonly string _savedMergePcb;
+        private string _autoSch = "";
+        private string _autoPcb = "";
         private readonly RadioButton _newMode;
         private readonly RadioButton _mergeMode;
         private readonly TextBox _folder;
@@ -28,6 +35,8 @@ namespace LcscStudio
         public TargetForm(AppSettings settings)
         {
             _draft = settings.Clone();
+            _savedMergeSch = _draft.MergeSchLib ?? "";
+            _savedMergePcb = _draft.MergePcbLib ?? "";
             Text = "下载位置";
             Width = 620;
             // 底部多留 44px：中文输入法的候选条是浮层，会盖住窗口右下角，
@@ -153,7 +162,65 @@ namespace LcscStudio
             _mergePcb.Enabled = !isNew;
             _preview.Visible = isNew;
             _model.Enabled = _footprint.Checked;
+            if (!isNew) SyncMergePathsToProject();
             UpdatePreview();
+        }
+
+        // 合并目标跟随当前工程：换到另一个项目时，上一项目的库路径不能继续沿用，
+        // 否则器件会被合并进别的项目的库里。工程目录下恰好一个库时直接填好，
+        // 多个或没有则清空，由用户在已定位到工程目录的浏览框里选。
+        private void SyncMergePathsToProject()
+        {
+            var folder = AdApi.CurrentProjectFolder;
+            if (string.IsNullOrEmpty(folder)) return;
+            SyncOne(_mergeSch, _savedMergeSch, ref _autoSch, folder, "*.SchLib");
+            SyncOne(_mergePcb, _savedMergePcb, ref _autoPcb, folder, "*.PcbLib");
+        }
+
+        private static void SyncOne(TextBox box, string saved, ref string auto, string folder, string pattern)
+        {
+            var current = box.Text.Trim();
+            var managed = current.Length == 0
+                || string.Equals(current, saved.Trim(), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(current, auto, StringComparison.OrdinalIgnoreCase);
+            if (!managed) return; // 用户本次手动改过，不覆盖
+
+            // 已经指向当前工程目录：沿用，同项目连续导入时路径保持稳定。
+            if (current.Length > 0 && IsInFolder(current, folder))
+            {
+                auto = current;
+                return;
+            }
+
+            auto = FindSingleLibrary(folder, pattern);
+            box.Text = auto;
+        }
+
+        private static bool IsInFolder(string path, string folder)
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(path);
+                if (dir == null) return false;
+                return string.Equals(dir.TrimEnd('\\'), folder.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string FindSingleLibrary(string folder, string pattern)
+        {
+            try
+            {
+                var files = Directory.GetFiles(folder, pattern, SearchOption.TopDirectoryOnly);
+                return files.Length == 1 ? files[0] : "";
+            }
+            catch
+            {
+                return "";
+            }
         }
 
         private void UpdatePreview()
@@ -191,6 +258,12 @@ namespace LcscStudio
                 if (File.Exists(target.Text))
                 {
                     try { dialog.InitialDirectory = Path.GetDirectoryName(target.Text); } catch { }
+                }
+                else
+                {
+                    // 还没选过库文件时直接定位到当前工程目录，不用从系统默认目录一层层翻。
+                    var projectFolder = AdApi.CurrentProjectFolder;
+                    if (!string.IsNullOrEmpty(projectFolder)) dialog.InitialDirectory = projectFolder;
                 }
                 if (dialog.ShowDialog(this) == DialogResult.OK) target.Text = dialog.FileName;
             }

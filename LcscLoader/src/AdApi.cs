@@ -72,6 +72,56 @@ namespace LcscLoader
             }
         }
 
+        // 当前工作上下文所在目录，用于“合并到已有库”定位到用户正在做的项目。
+        // 以当前文档为锚点：同时打开多个工程时，焦点工程未必是用户刚切过去的那个，
+        // 而当前文档所属工程才是。取不到工程时退回文档目录，再退回焦点工程目录。
+        public static string CurrentProjectFolder
+        {
+            get
+            {
+                try
+                {
+                    var docPath = Client.GetCurrentView()?.GetOwnerDocument()?.GetFileName();
+                    if (!string.IsNullOrEmpty(docPath))
+                    {
+                        var workspace = Client.Internal_GetDXPWorkspace() as IWorkspace;
+                        var project = workspace?.Internal_DM_GetProjectFromPath(docPath) as IProject;
+                        var projectPath = project?.DM_ProjectFullPath();
+                        if (!string.IsNullOrEmpty(projectPath))
+                        {
+                            var projectFolder = Path.GetDirectoryName(projectPath);
+                            if (Directory.Exists(projectFolder)) return projectFolder;
+                        }
+
+                        // 自由文档（不属于任何工程）：用它自己的目录。
+                        var docFolder = Path.GetDirectoryName(docPath);
+                        if (Directory.Exists(docFolder)) return docFolder;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    PluginLog.Write("current document folder failed: " + ex.Message);
+                }
+
+                try
+                {
+                    var workspace = Client.Internal_GetDXPWorkspace() as IWorkspace;
+                    var project = workspace?.Internal_DM_FocusedProject() as IProject;
+                    var path = project?.DM_ProjectFullPath();
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        var folder = Path.GetDirectoryName(path);
+                        if (Directory.Exists(folder)) return folder;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    PluginLog.Write("current project folder failed: " + ex.Message);
+                }
+                return null;
+            }
+        }
+
         public static string SchLibPath => Path.Combine(LibraryDir, "LCSC.SchLib");
 
         public static string PcbLibPath => Path.Combine(LibraryDir, "LCSC.PcbLib");
